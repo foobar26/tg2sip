@@ -1,0 +1,14 @@
+services:
+  gateway:
+    build: .
+    container_name: tg2sip
+    restart: unless-stopped
+    network_mode: host
+    env_file: .env
+    volumes:
+      - ./sessions:/app/sessions
+      - ./config:/app/config:ro
+    environment:
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      CONFIG_PATH: /app/config/config.yaml
+      SESSION_DIR: /app/sessions

@@ -1,0 +1,12 @@
+.env
+sessions/
+config/config.yaml
+# editor backups / vim undo files (can contain secrets)
+*~
+*.un~
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+.idea/
+.vscode/

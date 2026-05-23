@@ -1,0 +1,12 @@
+.git
+.gitignore
+.env
+sessions/
+config/config.yaml
+__pycache__
+*.pyc
+*.pyo
+.venv
+.pytest_cache
+.mypy_cache
+.ruff_cache

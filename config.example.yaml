@@ -1,0 +1,36 @@
+sip:
+  transport: udp
+  local_port: 5062            # 5060 belongs to Asterisk on the host
+  rtp_port_range: [4000, 4100]
+  codec_priorities:
+    PCMA/8000: 200
+    PCMU/8000: 180
+    opus/48000: 0
+
+telegram:
+  session_name: gateway
+  call_protocol:
+    min_layer: 92
+    max_layer: 92
+    udp_p2p: true
+    udp_reflector: true
+    library_versions: ["3.0.0"]
+
+bridge:
+  sip_sample_rate: 8000
+  tg_sample_rate: 48000
+  frame_ms: 20
+  jitter_ms: 60
+
+behaviour:
+  reject_if_busy: true
+  hangup_on_tg_decline: true
+  caller_id_in_tg_message: true
+
+# Optional outgoing video. When VIDEO_SOURCE_URL is set in .env, inbound calls
+# become Telegram *video* calls showing that stream (e.g. an MJPEG camera).
+# Audio is still bridged from the SIP caller. These set the encode resolution.
+video:
+  width: 640
+  height: 480
+  fps: 15

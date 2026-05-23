@@ -421,9 +421,9 @@ class TelegramMedia:
                 )
                 sent += 1
                 if sent == 1:
-                    log.info("video: first frame pushed to ntgcalls (%d bytes)", len(frame))
-                elif sent % 40 == 0:
-                    log.info("video frames pushed=%d", sent)
+                    log.debug("video: first frame pushed to ntgcalls (%d bytes)", len(frame))
+                elif sent % 300 == 0:
+                    log.debug("video frames pushed=%d", sent)
             except asyncio.CancelledError:
                 raise
             except Exception as e:  # noqa: BLE001

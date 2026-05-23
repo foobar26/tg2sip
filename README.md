@@ -21,16 +21,17 @@ Either side hanging up tears down both legs.
 
 ## Status
 
-Working end-to-end: inbound SIP calls bridge to a Telegram P2P voice call with **two-way audio**, pinned to `ntgcalls==1.3.4` (see `requirements.txt`).
+Working end-to-end: inbound SIP calls bridge to a Telegram P2P call with **two-way audio** and **optional one-way outgoing video** (e.g. a camera's RTSP/MJPEG feed shown as the caller's camera).
 
 | Component | Maturity |
 |---|---|
 | SIP UA (PJSUA2) | ✅ Mature, well-tested library |
 | Telegram MTProto signaling (Pyrogram) | ✅ Mature |
-| NTgCalls P2P media | ✅ Working against the pinned `ntgcalls==1.3.4` |
-| Audio bridge plumbing | ✅ Working; latency / jitter buffer may want tuning for your network |
+| NTgCalls P2P media (audio) | ✅ Working |
+| NTgCalls P2P media (outgoing video) | ✅ Working (VP8; see the CPU note below) |
+| Audio bridge plumbing | ✅ Working; jitter buffer may want tuning for your network |
 
-> **Version pin matters.** The NTgCalls P2P call setup in `src/telegram_media.py` is written against the exact API of `ntgcalls==1.3.4` (snake_case async methods, `create_p2p_call`/`init_exchange`/`exchange_keys`/`connect_p2p`, plus the signaling relay and the Playback-on-`microphone` quirk). If you bump `ntgcalls`, expect to revisit that file — the API has changed across versions.
+> **NTgCalls is built from source, not pip-installed.** The P2P call code in `src/telegram_media.py` targets the `ntgcalls` 2.x API (`create_p2p_call` + `set_stream_sources(CAPTURE)`, `init_exchange`/`exchange_keys`/`connect_p2p`, the signaling relay, and the Playback-on-`microphone` quirk). The Dockerfile's `ntgcalls-build` stage compiles ntgcalls **with the openh264 (H264) software encoder removed** — that encoder uses AVX2 and **crashes (SIGILL) on pre-AVX2 CPUs** (e.g. Ivy Bridge / older), and ntgcalls 2.x no longer lets you disable it at runtime. Stripping it forces VP8/VP9. On a CPU **with** AVX2 you could instead just `pip install ntgcalls` and drop the build stage. If you bump the ntgcalls version, revisit `telegram_media.py` and the patch line — the API and internals change across versions.
 
 If you'd rather use a different stack, the C++ project [kruglinski/tg2sip](https://github.com/kruglinski/tg2sip) (PJSIP + libtgvoip) is an older but battle-tested alternative built specifically for this.
 
@@ -93,7 +94,12 @@ VIDEO_SOURCE_USER=admin
 VIDEO_SOURCE_PASS=secret
 ```
 
-Credentials are URL-encoded into the stream URL for ffmpeg (Basic/Digest) and redacted from logs. Encode resolution/fps come from the `video:` block in `config/config.yaml` (defaults 640×480 @ 15 fps). ntgcalls runs `ffmpeg … -f rawvideo -pix_fmt yuv420p … pipe:1` (the `SHELL` source) and reads raw frames — `ffmpeg` is already in the image. Leave `VIDEO_SOURCE_URL` blank for audio-only calls. Note: incoming video *from* the Telegram user is ignored (there's no SIP video leg); this is one-way video out.
+Credentials are URL-encoded into the stream URL for ffmpeg (Basic/Digest) and redacted from logs. Encode resolution/fps come from the `video:` block in `config/config.yaml` (defaults 640×480 @ 15 fps). The gateway runs `ffmpeg` itself (a static build with RTSP, baked into the image) to decode the source to raw `yuv420p`, then pushes frames into ntgcalls as **EXTERNAL** camera frames (paced, strictly-increasing timestamps). For RTSP cameras add `VIDEO_INPUT_ARGS=-rtsp_transport tcp`. Leave `VIDEO_SOURCE_URL` blank for audio-only calls.
+
+Notes:
+- **One-way out.** Incoming video *from* the Telegram user is ignored (there's no SIP video leg).
+- **Codec/CPU.** Video is encoded with **VP8 in software** (H264 is stripped from the build — see Status). That's CPU-heavy; on an old CPU keep the resolution/fps modest (e.g. 320×240–640×480) and bump only as far as stays smooth.
+- **Why EXTERNAL, not ntgcalls' SHELL source.** ntgcalls' built-in SHELL video reader deadlocks against the EXTERNAL (SIP) audio in its capture A/V-sync, so both legs must be EXTERNAL and we run ffmpeg ourselves.
 
 ## Using with a local Asterisk PBX
 

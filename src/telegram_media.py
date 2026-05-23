@@ -63,13 +63,16 @@ class TelegramMedia:
         self._video = video  # config.VideoConfig or None
         if video is not None and video.enabled and not video.h264:
             # Drop the H264 software encoder (process-wide, before any connection
-            # is built). A workaround to dodge a SIMD/illegal-instruction crash
-            # in the prebuilt video codecs on older CPUs (no AVX2).
-            try:
+            # is built) to dodge a SIMD/illegal-instruction crash in the prebuilt
+            # codecs on older CPUs (no AVX2). NOTE: removed in ntgcalls 2.x —
+            # there H264 is always offered and can't be disabled via the API.
+            if hasattr(ntgcalls.NTgCalls, "enable_h264_encoder"):
                 ntgcalls.NTgCalls.enable_h264_encoder(False)
                 log.info("ntgcalls H264 encoder disabled (VIDEO_H264=0)")
-            except Exception as e:  # noqa: BLE001
-                log.warning("could not toggle H264 encoder: %s", e)
+            else:
+                log.warning("VIDEO_H264=0 ignored: this ntgcalls (%s) has no H264 "
+                            "toggle — H264 is always offered",
+                            getattr(ntgcalls, "__version__", "?"))
         self._user_id: Optional[int] = None
         # ntgcalls EXTERNAL audio is fed in 10 ms frames.
         self._frame_bytes = sample_rate // 100 * 2 * channels
@@ -124,7 +127,12 @@ class TelegramMedia:
 
     async def create_call(self, user_id: int) -> None:
         self._user_id = user_id
-        await self._ntg.create_p2p_call(user_id, self._capture_media())
+        # ntgcalls 2.x: create_p2p_call takes no media; capture sources are set
+        # separately (1.3.4 took the media directly in create_p2p_call).
+        await self._ntg.create_p2p_call(user_id)
+        await self._ntg.set_stream_sources(
+            user_id, ntgcalls.StreamMode.CAPTURE, self._capture_media()
+        )
 
     async def init_exchange(self, user_id: int, g: int, p: bytes, random: bytes) -> bytes:
         """Outgoing DH start. Returns our g_a_hash for phone.requestCall."""

@@ -10,3 +10,6 @@ __pycache__/
 .venv/
 .idea/
 .vscode/
+
+# Claude Code local settings (machine-specific)
+.claude/settings.local.json

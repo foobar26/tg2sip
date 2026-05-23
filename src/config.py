@@ -94,7 +94,9 @@ def load() -> Config:
     tg = TelegramConfig(
         api_id=int(_req_env("TG_API_ID")),
         api_hash=_req_env("TG_API_HASH"),
-        forward_user_id=int(_req_env("TG_FORWARD_USER_ID")),
+        # Optional now: it's the fallback target when the SIP destination doesn't
+        # carry a routable number/username. 0 = no fallback (reject such calls).
+        forward_user_id=int(os.environ.get("TG_FORWARD_USER_ID") or 0),
         session_name=tg_raw["session_name"],
         session_dir=session_dir,
         call_protocol=tg_raw["call_protocol"],

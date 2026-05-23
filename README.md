@@ -222,6 +222,7 @@ By default logs go to stdout (`docker compose logs`). To also write them to `/va
 
 ```bash
 # 1. create the log dir owned by the container's user (uid 1000 = "gw")
+#    (skip if you use the systemd service — it does this via ExecStartPre)
 sudo mkdir -p /var/log/tg2sip && sudo chown 1000:1000 /var/log/tg2sip
 # 2. install the logrotate config (daily, 14 kept, compressed, max 50M)
 sudo install -m 644 deploy/logrotate-tg2sip /etc/logrotate.d/tg2sip

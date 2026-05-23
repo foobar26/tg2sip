@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import random
+import re
 from typing import Optional
 
 from pyrogram import Client
@@ -57,6 +58,7 @@ class TelegramSignaling:
         self._on_signaling_in = None
         self._sig_out_logged = False
         self._sig_in_logged = False
+        self._peer_cache: dict[str, types.InputUser] = {}
 
     async def start(self) -> None:
         await self._client.start()
@@ -105,15 +107,47 @@ class TelegramSignaling:
             raise RuntimeError(f"unexpected DhConfig response: {type(dh).__name__}")
         return dh.g, dh.p, dh.random
 
-    async def request_call(self, user_id: int, g_a_hash: bytes, protocol, video: bool = False) -> None:
-        """Send phone.requestCall. Arms the accepted/discarded futures."""
+    async def resolve_target(self, target) -> tuple[int, "types.InputUser"]:
+        """Resolve a call target to (user_id, InputUser). Accepts an int TG user
+        id, a '+<digits>' phone number (looked up / imported as a contact), or a
+        '@username'. Results are cached for the session."""
+        key = str(target).strip()
+        if key in self._peer_cache:
+            iu = self._peer_cache[key]
+            return iu.user_id, iu
+
+        if isinstance(target, str) and re.fullmatch(r"\+\d{5,15}", key):
+            iu = await self._resolve_phone(key)
+        else:
+            peer = await self._client.resolve_peer(target)  # int id or @username
+            if not isinstance(peer, types.InputPeerUser):
+                raise RuntimeError(f"target {target!r} is not a user ({type(peer).__name__})")
+            iu = types.InputUser(user_id=peer.user_id, access_hash=peer.access_hash)
+
+        self._peer_cache[key] = iu
+        return iu.user_id, iu
+
+    async def _resolve_phone(self, phone: str) -> "types.InputUser":
+        # Import the number as a contact to discover the Telegram user (also helps
+        # the callee get a proper ring, since the gateway becomes a contact).
+        imported = await self._client.invoke(
+            functions.contacts.ImportContacts(
+                contacts=[types.InputPhoneContact(
+                    client_id=random.getrandbits(63),
+                    phone=phone, first_name="tg2sip", last_name="",
+                )]
+            )
+        )
+        for u in imported.users:
+            return types.InputUser(user_id=u.id, access_hash=u.access_hash)
+        raise RuntimeError(f"phone {phone} is not a Telegram user")
+
+    async def request_call(self, input_user: "types.InputUser", g_a_hash: bytes,
+                           protocol, video: bool = False) -> None:
+        """Send phone.requestCall to an already-resolved peer. Arms the
+        accepted/discarded futures."""
         if self._call_id is not None:
             raise RuntimeError("another call is already active")
-
-        peer = await self._client.resolve_peer(user_id)
-        if not isinstance(peer, types.InputPeerUser):
-            raise RuntimeError(f"forward target must be a user, got {type(peer).__name__}")
-        input_user = types.InputUser(user_id=peer.user_id, access_hash=peer.access_hash)
 
         loop = asyncio.get_running_loop()
         self._accepted = loop.create_future()

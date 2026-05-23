@@ -83,6 +83,25 @@ TG_FORWARD_USER_ID=987654321
 
 `config/config.yaml` holds non-secret settings (ports, codecs, log level, ringing behaviour). See `config.example.yaml`.
 
+### Call routing (fixed or dynamic)
+
+By default calls go to `TG_FORWARD_USER_ID`. You can instead route **per call** by the dialed SIP destination (the user part of the To/Request-URI). Point Asterisk at the gateway with the target as the SIP user, e.g.:
+
+```ini
+exten => _X.,1,Dial(PJSIP/+49123456789@tg2sip)   ; calls that phone's Telegram account
+```
+
+The gateway interprets the dialed value as:
+
+| Dialed user part | Routes to |
+|---|---|
+| `+49123456789` (leading `+`) | that **phone number's** Telegram account (looked up; the number is imported as a contact on the gateway account) |
+| `@alice` | Telegram **username** `alice` |
+| `123456789` (plain digits) | Telegram **numeric user id** |
+| anything else / the endpoint name | falls back to `TG_FORWARD_USER_ID` |
+
+Notes: the phone number must be **E.164 with the leading `+`** (plain digits are treated as a user id, not a phone). The destination must be a Telegram user. `TG_FORWARD_USER_ID` is now optional — leave it blank to reject calls that don't name a routable target. Resolved targets are cached for the session. The incoming call's `localUri`/`remoteUri` are logged so you can confirm what your PBX actually sends.
+
 ### Video calls (optional)
 
 Set `VIDEO_SOURCE_URL` in `.env` to turn inbound calls into Telegram **video** calls — the configured user sees that stream as the caller's camera, while audio is still bridged from the SIP side. Any ffmpeg-readable input works (MJPEG/HTTP/RTSP/file):

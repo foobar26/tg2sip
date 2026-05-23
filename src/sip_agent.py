@@ -111,7 +111,8 @@ class BridgeAudioPort(pj.AudioMediaPort):
 class IncomingCall:
     call_id: int
     remote_uri: str
-    caller_id: str
+    caller_id: str       # user part of the From URI (who's calling)
+    destination: str     # user part of the To URI (the dialed number/target)
 
 
 class _Endpoint(pj.Endpoint):
@@ -133,8 +134,12 @@ class _Account(pj.Account):
             call_id=prm.callId,
             remote_uri=info.remoteUri,
             caller_id=_extract_user(info.remoteUri),
+            destination=_extract_user(info.localUri),
         )
-        log.info("incoming sip call from %s", ic.caller_id)
+        # localUri/remoteUri logged so you can see exactly what the INVITE carries
+        # (the dialed number for dynamic routing comes from the To/local URI).
+        log.info("incoming sip call: from=%s to=%s (localUri=%r remoteUri=%r)",
+                 ic.caller_id, ic.destination, info.localUri, info.remoteUri)
         self._on_incoming(ic, call)
 
 

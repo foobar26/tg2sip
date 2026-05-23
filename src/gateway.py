@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from enum import Enum, auto
 from typing import Optional
 
@@ -51,6 +52,7 @@ class Gateway:
         self._playback: Optional[JitterBuffer] = None
         self._tg_media: Optional[TelegramMedia] = None
         self._sip_port: Optional[pj.AudioMediaPort] = None
+        self._active_uid: Optional[int] = None   # resolved TG user id for the live call
 
         self._sip = SipAgent(cfg.sip, on_incoming_call=self._on_incoming_sip_threadsafe)
         self._tg_sig = TelegramSignaling(cfg.telegram)
@@ -103,10 +105,33 @@ class Gateway:
             except pj.Error as e:
                 log.warning("could not send 180 ringing: %s", e)
 
-        await self._spawn_tg_call(ic.caller_id)
+        await self._spawn_tg_call(ic.caller_id, ic.destination)
 
-    async def _spawn_tg_call(self, caller_id: str) -> None:
-        uid = self._cfg.telegram.forward_user_id
+    def _pick_target(self, destination: str):
+        """Choose the TG call target from the dialed SIP destination, else the
+        configured fallback. '+<digits>' → phone, '@name' → username, plain
+        digits → TG user id; anything else (e.g. the gateway's own SIP user) →
+        the TG_FORWARD_USER_ID fallback."""
+        d = (destination or "").strip()
+        if re.fullmatch(r"\+\d{5,15}", d) or d.startswith("@") or re.fullmatch(r"\d{5,}", d):
+            return int(d) if d.isdigit() else d
+        return self._cfg.telegram.forward_user_id or None
+
+    async def _spawn_tg_call(self, caller_id: str, destination: str = "") -> None:
+        target = self._pick_target(destination)
+        if not target:
+            log.warning("no TG target for call (dest=%r, no fallback); rejecting", destination)
+            await self._teardown()
+            return
+        try:
+            uid, input_user = await self._tg_sig.resolve_target(target)
+        except Exception as e:  # noqa: BLE001
+            log.warning("cannot resolve TG target %r: %s", target, e)
+            await self._teardown()
+            return
+        self._active_uid = uid
+        log.info("routing call from %s → TG user %d (target=%r)", caller_id, uid, target)
+
         if self._cfg.behaviour.caller_id_in_tg_message:
             await self._tg_sig.send_text(uid, f"📞 Incoming call from {caller_id}")
 
@@ -129,7 +154,7 @@ class Gateway:
 
             # 3. phone.requestCall (video flag set when an MJPEG source is configured).
             await self._tg_sig.request_call(
-                uid, g_a_hash, protocol, video=self._tg_media.video_enabled
+                input_user, g_a_hash, protocol, video=self._tg_media.video_enabled
             )
             async with self._lock:
                 self._state = State.TG_CONFIRMING
@@ -197,9 +222,9 @@ class Gateway:
             asyncio.run_coroutine_threadsafe(self._teardown(), self._loop)
 
     async def _on_tg_signaling_in(self, data: bytes) -> None:
-        if self._tg_media is not None:
+        if self._tg_media is not None and self._active_uid is not None:
             try:
-                await self._tg_media.feed_signaling(self._cfg.telegram.forward_user_id, data)
+                await self._tg_media.feed_signaling(self._active_uid, data)
             except Exception as e:  # noqa: BLE001
                 log.debug("feed_signaling failed: %s", e)
 
@@ -228,6 +253,7 @@ class Gateway:
                 pass
             self._sip_call = None
         self._sip_port = None
+        self._active_uid = None
 
         async with self._lock:
             self._state = State.IDLE

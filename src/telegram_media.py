@@ -440,12 +440,13 @@ class TelegramMedia:
         return ntgcalls.MediaDescription(microphone=self._audio_external())
 
     async def stop(self) -> None:
-        if self._video_proc is not None:
-            try:
-                self._video_proc.terminate()
-            except Exception:  # noqa: BLE001
-                pass
-            self._video_proc = None  # reader thread (daemon) exits on EOF
+        proc = self._video_proc
+        self._video_proc = None  # reader thread (daemon) exits on EOF
+        if proc is not None:
+            # Force ffmpeg down and reap it off-thread (don't block the loop). A
+            # stuck ffmpeg that ignores SIGTERM would keep the camera's RTSP
+            # session open, so the next call's ffmpeg can't connect (exit 187).
+            threading.Thread(target=_kill_proc, args=(proc,), daemon=True).start()
         for task_attr in ("_tx_task", "_sig_out_task", "_sig_in_task", "_video_task"):
             task = getattr(self, task_attr)
             if task is not None:
@@ -463,6 +464,22 @@ class TelegramMedia:
             log.warning("ntgcalls stop failed: %s", e)
         finally:
             self._user_id = None
+
+
+def _kill_proc(proc) -> None:
+    """Terminate then (if needed) kill an ffmpeg subprocess and reap it. Run in a
+    daemon thread so the blocking waits don't stall the event loop."""
+    try:
+        proc.terminate()
+        proc.wait(timeout=3)
+    except subprocess.TimeoutExpired:
+        try:
+            proc.kill()
+            proc.wait(timeout=3)
+        except Exception:  # noqa: BLE001
+            pass
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def _with_basic_auth(url: str, user: str, password: str) -> str:

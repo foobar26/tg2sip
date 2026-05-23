@@ -194,13 +194,50 @@ If registration fails, check:
 - The secret in `.env` matches the one in `pjsip.conf`
 - The container is on host networking (already the default in `docker-compose.yml`)
 
+## Running as a systemd service
+
+A unit file is provided at `deploy/tg2sip.service` (runs `docker compose up -d` / `down`; runs as root since the gateway needs Docker). Install it:
+
+```bash
+sudo install -m 644 deploy/tg2sip.service /etc/systemd/system/tg2sip.service
+sudo systemctl daemon-reload
+sudo systemctl enable --now tg2sip        # start now + auto-start on boot
+```
+
+Control it:
+
+```bash
+sudo systemctl start tg2sip
+sudo systemctl stop tg2sip                # docker compose down
+sudo systemctl restart tg2sip             # recreate from the current image
+sudo systemctl status tg2sip
+sudo systemctl disable --now tg2sip       # stop + remove from boot
+```
+
+The service starts the **already-built** image (it never rebuilds). After a code/Dockerfile change: `sudo docker compose build` then `sudo systemctl restart tg2sip`.
+
+## Logging to /var/log with rotation
+
+By default logs go to stdout (`docker compose logs`). To also write them to `/var/log` with rotation, the compose file mounts `/var/log/tg2sip` into the container and sets `LOG_FILE=/var/log/tg2sip/gateway.log`; the app writes JSON there via a `WatchedFileHandler` (reopens the file after rotation). One-time host setup:
+
+```bash
+# 1. create the log dir owned by the container's user (uid 1000 = "gw")
+sudo mkdir -p /var/log/tg2sip && sudo chown 1000:1000 /var/log/tg2sip
+# 2. install the logrotate config (daily, 14 kept, compressed, max 50M)
+sudo install -m 644 deploy/logrotate-tg2sip /etc/logrotate.d/tg2sip
+# 3. rebuild + restart so the app picks up file logging
+sudo docker compose up -d --build         # or: build, then systemctl restart tg2sip
+```
+
+Then tail it with `tail -f /var/log/tg2sip/gateway.log`. Test rotation with `sudo logrotate -f /etc/logrotate.d/tg2sip`. If `/var/log/tg2sip` isn't writable by uid 1000, the app logs a warning to stderr and falls back to stdout-only (it won't crash).
+
 ## Operational notes
 
 - **NAT / firewalls.** Telegram voice uses UDP; if running behind NAT, the relay (`phoneConnection`) typically traverses it, but you may need to publish UDP ports in `docker-compose.yml` for direct P2P. SIP equally needs RTP UDP reachability — use a STUN server or your provider's recommended ports.
 - **Codec.** SIP leg defaults to PCMA/PCMU (8 kHz). Telegram leg uses Opus 48 kHz. The bridge resamples; expect ~20–40 ms added latency.
 - **Concurrency.** The current implementation handles **one call at a time** by design (matches the typical "phone" use case). A second SIP INVITE while a call is active will be rejected with `486 Busy Here`.
 - **Auto-reconnect.** The SIP registration is kept alive by PJSUA2; the Telegram session reconnects via Pyrogram. The Docker container's `restart: unless-stopped` handles process-level crashes.
-- **Logs.** JSON to stdout (captured by Docker). Set `LOG_LEVEL=DEBUG` in `.env` to see PJSUA2 + Pyrogram internals.
+- **Logs.** JSON to stdout (captured by Docker) and, when `LOG_FILE` is set, to a file — see [Logging to /var/log with rotation](#logging-to-varlog-with-rotation). Set `LOG_LEVEL=DEBUG` in `.env` to see PJSUA2 + Pyrogram (and ntgcalls/WebRTC) internals.
 
 ## Project layout
 

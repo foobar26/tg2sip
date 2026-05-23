@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import logging
+import logging.handlers
+import os
 import sys
 from datetime import datetime, timezone
 
@@ -22,10 +24,23 @@ class JsonFormatter(logging.Formatter):
 
 
 def setup(level: str = "INFO") -> None:
-    handler = logging.StreamHandler(sys.stdout)
-    handler.setFormatter(JsonFormatter())
+    fmt = JsonFormatter()
+    handlers: list[logging.Handler] = [logging.StreamHandler(sys.stdout)]
+    # Optional file log (for /var/log + logrotate). WatchedFileHandler reopens
+    # the file after logrotate moves it, so no copytruncate is needed.
+    log_file = os.environ.get("LOG_FILE", "").strip()
+    if log_file:
+        try:
+            d = os.path.dirname(log_file)
+            if d:
+                os.makedirs(d, exist_ok=True)
+            handlers.append(logging.handlers.WatchedFileHandler(log_file))
+        except OSError as e:
+            print(f"log: cannot open LOG_FILE {log_file!r}: {e}", file=sys.stderr)
+    for h in handlers:
+        h.setFormatter(fmt)
     root = logging.getLogger()
-    root.handlers[:] = [handler]
+    root.handlers[:] = handlers
     root.setLevel(level)
     logging.getLogger("pyrogram").setLevel(logging.WARNING)
     # ntgcalls routes WebRTC's internal logs to these loggers, but silences them

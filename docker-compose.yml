@@ -8,7 +8,9 @@ services:
     volumes:
       - ./sessions:/app/sessions
       - ./config:/app/config:ro
+      - /var/log/tg2sip:/var/log/tg2sip
     environment:
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       CONFIG_PATH: /app/config/config.yaml
       SESSION_DIR: /app/sessions
+      LOG_FILE: /var/log/tg2sip/gateway.log

@@ -1,0 +1,14 @@
+# Install to /etc/logrotate.d/tg2sip
+# Rotates the gateway's JSON log. The app uses WatchedFileHandler, so it
+# reopens the new file automatically after rotation (no copytruncate needed).
+# uid/gid 1000 = the container's "gw" user, which writes the log.
+/var/log/tg2sip/*.log {
+    daily
+    rotate 14
+    maxsize 50M
+    missingok
+    notifempty
+    compress
+    delaycompress
+    create 0644 1000 1000
+}

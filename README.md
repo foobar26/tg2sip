@@ -111,14 +111,16 @@ Configure the routes in `config/config.yaml` under `telegram.inbound_routes` —
 ```yaml
 telegram:
   inbound_routes:
-    "123456789": "100"                 # TG user 123456789 → SIP extension 100
-    "@somebody":  "200"                # TG @somebody      → SIP extension 200
+    "123456789":      "100"            # TG user id  → SIP extension 100
+    "+4915112345678": "100"            # TG phone    → SIP extension 100
+    "@somebody":      "200"            # TG username → SIP extension 200
     "234567890": "sip:door@10.0.0.5"   # full SIP URI also allowed
 ```
 
 | Route key | Matches |
 |---|---|
 | `"123456789"` (quoted digits) | the caller's **numeric Telegram user id** (most reliable) |
+| `"+4915112345678"` (E.164) | the caller's **phone number** — resolved to a user id (see note) |
 | `"@somebody"` | the caller's Telegram **username** |
 
 | Route value | Dials |
@@ -127,7 +129,7 @@ telegram:
 | `sip:door@10.0.0.5` | that URI verbatim |
 
 Notes:
-- **No phone-number keys for inbound** — Telegram does not reveal a *caller's* phone number to us (only their user id, and username if they have one). Use the user id. (Tip: place a call once with `TG→` routing or check the log line `incoming TG call from user <id>` to learn a caller's id.)
+- **Phone-number keys** work, but indirectly: Telegram never reveals a *caller's* number to us (we only get their user id + username). So a `+<phone>` key is resolved to *its* user id (via a contact import, like the SIP→TG direction) and the incoming call's id is matched against that — the number must belong to a Telegram user. Numeric user-id keys are the most direct (no lookup). Tip: check the log line `incoming TG call from user <id>` to learn a caller's id.
 - The gateway handles **one call at a time** in either direction; a second call (either way) gets a busy decline.
 - Audio bridges both ways. If a video source is configured (`VIDEO_SOURCE_URL`/`VIDEO_SOURCE_CMD`, e.g. a doorbell camera) it is also sent **to the Telegram caller** — one-way video, since the SIP phone has no camera. Any video the caller sends is ignored.
 - For this to work, the gateway's Telegram account must **accept calls** from these users (Telegram Settings → Privacy → Calls).

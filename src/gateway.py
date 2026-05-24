@@ -211,16 +211,30 @@ class Gateway:
         self._incoming_task = asyncio.create_task(self._spawn_sip_call(incoming))
 
     async def _pick_sip_dest(self, caller_id: int) -> Optional[str]:
-        """Map an inbound TG caller to a SIP destination via inbound_routes
-        (numeric id or @username). None = caller not in the table (declined)."""
+        """Map an inbound TG caller to a SIP destination via inbound_routes. Keys
+        may be a numeric TG user id, "@username", or "+<phone>" (resolved to a
+        user id and cached). None = caller not in the table (declined)."""
         routes = self._cfg.telegram.inbound_routes
         if not routes:
             return None
+        # 1. direct numeric user id
         if str(caller_id) in routes:
             return routes[str(caller_id)]
+        # 2. @username
         uname = await self._tg_sig.username_of(caller_id)
         if uname and uname in routes:
             return routes[uname]
+        # 3. +phone — we can't read the caller's number, so resolve each phone
+        # *key* to its user id (cached; imports it as a contact) and compare.
+        for key, dest in routes.items():
+            if re.fullmatch(r"\+\d{5,15}", key):
+                try:
+                    uid, _ = await self._tg_sig.resolve_target(key)
+                except Exception as e:  # noqa: BLE001
+                    log.debug("inbound route phone %s unresolved: %s", key, e)
+                    continue
+                if uid == caller_id:
+                    return dest
         return None
 
     def _sip_dest_uri(self, dest: str) -> str:

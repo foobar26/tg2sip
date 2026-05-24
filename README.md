@@ -113,7 +113,7 @@ telegram:
   inbound_routes:
     "123456789": "100"                 # TG user 123456789 → SIP extension 100
     "@somebody":  "200"                # TG @somebody      → SIP extension 200
-    "123456789": "sip:door@10.0.0.5"   # full SIP URI also allowed
+    "234567890": "sip:door@10.0.0.5"   # full SIP URI also allowed
 ```
 
 | Route key | Matches |

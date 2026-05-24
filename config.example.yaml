@@ -24,7 +24,7 @@ telegram:
   inbound_routes: {}
   #  "123456789": "12"           # TG user 123456789 → SIP extension 12
   #  "@somebody":  "200"         # TG @somebody      → extension 200
-  #  "123456789": "sip:door@10.0.0.5"   # full URI
+  #  "234567890": "sip:door@10.0.0.5"   # full URI
 
 bridge:
   sip_sample_rate: 8000

@@ -251,11 +251,13 @@ class Gateway:
         try:
             await self._tg_sig.received_call()  # caller's UI shows "ringing"
 
-            # Media objects (audio only toward the phone).
+            # Media objects. SIP audio bridges both ways; if a video source is
+            # configured (e.g. a doorbell camera) we also send it to the TG
+            # caller (the SIP phone has no camera, so this leg is one-way video).
             self._playback = JitterBuffer(_playback_cap_bytes(self._cfg.bridge))
             self._tg_media = TelegramMedia(
                 self._playback, self._loop,
-                sample_rate=self._cfg.bridge.tg_sample_rate, video=None,
+                sample_rate=self._cfg.bridge.tg_sample_rate, video=self._cfg.video,
             )
             self._tg_media.set_state_callback(self._on_tg_conn_state_threadsafe)
             self._tg_media.set_signaling_sender(self._tg_sig.send_signaling_out)
@@ -279,6 +281,7 @@ class Gateway:
                 incoming.caller_id, est.connections,
                 est.protocol.library_versions, est.p2p_allowed)
             self._tg_media.start_tx_pump()
+            self._tg_media.start_video_feeder()  # doorbell camera → TG caller
         except CallDiscardedError as e:
             log.info("tg→sip call ended before bridge: %s", e)
             await self._teardown()

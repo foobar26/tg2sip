@@ -129,7 +129,7 @@ telegram:
 Notes:
 - **No phone-number keys for inbound** — Telegram does not reveal a *caller's* phone number to us (only their user id, and username if they have one). Use the user id. (Tip: place a call once with `TG→` routing or check the log line `incoming TG call from user <id>` to learn a caller's id.)
 - The gateway handles **one call at a time** in either direction; a second call (either way) gets a busy decline.
-- Audio only (the SIP phone has no camera); any video the caller sends is ignored.
+- Audio bridges both ways. If a video source is configured (`VIDEO_SOURCE_URL`/`VIDEO_SOURCE_CMD`, e.g. a doorbell camera) it is also sent **to the Telegram caller** — one-way video, since the SIP phone has no camera. Any video the caller sends is ignored.
 - For this to work, the gateway's Telegram account must **accept calls** from these users (Telegram Settings → Privacy → Calls).
 
 ### Video calls (optional)

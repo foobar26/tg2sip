@@ -15,6 +15,16 @@ telegram:
     udp_p2p: true
     udp_reflector: true
     library_versions: ["3.0.0"]
+  # TG→SIP routing + whitelist. When one of these Telegram accounts CALLS the
+  # gateway, it dials the mapped SIP destination; callers not listed are declined.
+  # Keys: numeric TG user id (quote it) or "@username" — a caller's phone number
+  # is NOT visible to us, so no phone keys. Values: a SIP extension
+  # (→ sip:<ext>@SIP_DOMAIN) or a full sip: URI. A configured VIDEO_SOURCE_URL
+  # (e.g. a doorbell camera) is also shown one-way to the caller.
+  inbound_routes: {}
+  #  "123456789": "12"           # TG user 123456789 → SIP extension 12
+  #  "@somebody":  "200"         # TG @somebody      → extension 200
+  #  "123456789": "sip:door@10.0.0.5"   # full URI
 
 bridge:
   sip_sample_rate: 8000

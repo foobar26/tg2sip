@@ -18,7 +18,7 @@ this repository; they are downloaded/built by the Dockerfile at build time.
 
   - PJSIP / pjproject (PJSUA2)   GPLv2 OR commercial
                                  https://github.com/pjsip/pjproject
-  - ntgcalls                     GPLv3  (verify upstream)
+  - ntgcalls                     GPLv3
                                  https://github.com/pytgcalls/ntgcalls
   - WebRTC (bundled by ntgcalls) BSD-3-Clause
   - Pyrogram                     LGPLv3-or-later

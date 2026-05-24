@@ -9,6 +9,10 @@ services:
       - ./sessions:/app/sessions
       - ./config:/app/config:ro
       - /var/log/tg2sip:/var/log/tg2sip
+      # Make log timestamps use the host's local timezone (containers default to
+      # UTC). Read-only; follows the host zone incl. DST. No tzdata needed.
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
     environment:
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       CONFIG_PATH: /app/config/config.yaml

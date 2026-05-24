@@ -217,6 +217,11 @@ class SipAgent:
 
         tp_cfg = pj.TransportConfig()
         tp_cfg.port = self._cfg.local_port
+        # Bind to a specific interface (default 127.0.0.1) so the SIP port isn't
+        # exposed on public/LAN interfaces — the PBX and registrar are local.
+        # Empty string = bind all interfaces (0.0.0.0). See SIP_BIND_ADDRESS.
+        if self._cfg.bind_address:
+            tp_cfg.boundAddress = self._cfg.bind_address
         transport_type = (
             pj.PJSIP_TRANSPORT_TCP if self._cfg.transport.lower() == "tcp"
             else pj.PJSIP_TRANSPORT_UDP
@@ -229,7 +234,8 @@ class SipAgent:
         # without it startTransmit fails with PJMEDIA_EAUD_NODEFDEV and no audio
         # is ever pulled toward the caller.
         self._ep.audDevManager().setNullDev()
-        log.info("pjsua2 started on port %d/%s (null audio device)",
+        log.info("pjsua2 started on %s:%d/%s (null audio device)",
+                 self._cfg.bind_address or "0.0.0.0",
                  self._cfg.local_port, self._cfg.transport)
 
         for codec, prio in self._cfg.codec_priorities.items():

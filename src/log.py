@@ -5,13 +5,16 @@ import logging
 import logging.handlers
 import os
 import sys
-from datetime import datetime, timezone
+from datetime import datetime
 
 
 class JsonFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         payload = {
-            "ts": datetime.now(timezone.utc).isoformat(timespec="milliseconds"),
+            # Local wall-clock time, with the offset (e.g. +02:00). astimezone()
+            # with no arg uses the system local zone — set TZ or mount
+            # /etc/localtime into the container (see docker-compose.yml).
+            "ts": datetime.now().astimezone().isoformat(timespec="milliseconds"),
             "lvl": record.levelname,
             "name": record.name,
             "msg": record.getMessage(),

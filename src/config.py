@@ -14,6 +14,7 @@ class SipConfig:
     password: str
     domain: str
     registrar: str
+    bind_address: str   # local interface PJSIP binds SIP to ("" = all interfaces)
     transport: str
     local_port: int
     rtp_port_range: tuple[int, int]
@@ -84,6 +85,10 @@ def load() -> Config:
         password=_req_env("SIP_PASSWORD"),
         domain=_req_env("SIP_DOMAIN"),
         registrar=os.environ.get("SIP_REGISTRAR") or _req_env("SIP_DOMAIN"),
+        # Bind SIP to loopback by default: the PBX/registrar are local, so the
+        # gateway never needs to be reachable from other hosts or the internet.
+        # Set SIP_BIND_ADDRESS="" (or 0.0.0.0) to listen on all interfaces.
+        bind_address=os.environ.get("SIP_BIND_ADDRESS", "127.0.0.1"),
         transport=sip_raw["transport"],
         local_port=int(sip_raw["local_port"]),
         rtp_port_range=tuple(sip_raw["rtp_port_range"]),  # type: ignore[arg-type]

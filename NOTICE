@@ -1,0 +1,38 @@
+tg2sip
+Copyright 2026 Frank Egger
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+------------------------------------------------------------------------
+Third-party components
+------------------------------------------------------------------------
+
+The Apache-2.0 license above applies to THIS repository's own source code
+only. tg2sip is built and run together with the third-party components
+listed below, each under its own license. None of them are included in
+this repository; they are downloaded/built by the Dockerfile at build time.
+
+  - PJSIP / pjproject (PJSUA2)   GPLv2 OR commercial
+                                 https://github.com/pjsip/pjproject
+  - ntgcalls                     GPLv3  (verify upstream)
+                                 https://github.com/pytgcalls/ntgcalls
+  - WebRTC (bundled by ntgcalls) BSD-3-Clause
+  - Pyrogram                     LGPLv3-or-later
+                                 https://github.com/pyrogram/pyrogram
+  - TgCrypto                     LGPLv3-or-later
+  - PyYAML                       MIT
+  - python-dotenv                BSD-3-Clause
+  - FFmpeg (static build)        GPL — invoked as a separate process
+                                 https://ffmpeg.org
+
+NOTE: Because PJSIP is GPLv2 (or commercial) and ntgcalls / FFmpeg are GPL,
+a *distributed* binary or container image that combines them is effectively
+governed by the GPL. If you redistribute a built artifact you must comply
+with those licenses (or obtain a PJSIP commercial license). Building and
+running it for your own use does not "distribute" the combination.
+
+This file is informational and does not modify the Apache-2.0 License.

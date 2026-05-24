@@ -323,4 +323,6 @@ tg2sip/
 
 ## License
 
-Use it however you want. No warranty.
+This repository's own source code is licensed under the **[Apache License 2.0](LICENSE)**.
+
+It builds on third-party components under their own licenses — notably **PJSIP** (GPLv2-or-commercial), **ntgcalls** (GPLv3), **Pyrogram**/**TgCrypto** (LGPLv3), **WebRTC** (BSD), and **FFmpeg** (GPL, run as a separate process). None are bundled here; the Dockerfile pulls them at build time. The Apache 2.0 license covers this repo's source only — a **built** image combines those components and is therefore subject to their (copyleft) terms. See [NOTICE](NOTICE). Not legal advice.

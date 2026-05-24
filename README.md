@@ -102,6 +102,36 @@ The gateway interprets the dialed value as:
 
 Notes: the phone number must be **E.164 with the leading `+`** (plain digits are treated as a user id, not a phone). The destination must be a Telegram user. `TG_FORWARD_USER_ID` is now optional — leave it blank to reject calls that don't name a routable target. Resolved targets are cached for the session. The incoming call's `localUri`/`remoteUri` are logged so you can confirm what your PBX actually sends.
 
+### Calling from Telegram to SIP (inbound)
+
+The gateway also works **the other way**: when a whitelisted Telegram account *calls the gateway's Telegram account*, it dials a SIP extension and bridges the audio. The caller hears Telegram's ringback while the phone rings; once the phone answers, audio bridges both ways.
+
+Configure the routes in `config/config.yaml` under `telegram.inbound_routes` — this map is **also the whitelist**: callers not listed are declined.
+
+```yaml
+telegram:
+  inbound_routes:
+    "123456789": "100"                 # TG user 123456789 → SIP extension 100
+    "@somebody":  "200"                # TG @somebody      → SIP extension 200
+    "123456789": "sip:door@10.0.0.5"   # full SIP URI also allowed
+```
+
+| Route key | Matches |
+|---|---|
+| `"123456789"` (quoted digits) | the caller's **numeric Telegram user id** (most reliable) |
+| `"@somebody"` | the caller's Telegram **username** |
+
+| Route value | Dials |
+|---|---|
+| `100` (bare) | `sip:100@SIP_DOMAIN` (your PBX routes the extension) |
+| `sip:door@10.0.0.5` | that URI verbatim |
+
+Notes:
+- **No phone-number keys for inbound** — Telegram does not reveal a *caller's* phone number to us (only their user id, and username if they have one). Use the user id. (Tip: place a call once with `TG→` routing or check the log line `incoming TG call from user <id>` to learn a caller's id.)
+- The gateway handles **one call at a time** in either direction; a second call (either way) gets a busy decline.
+- Audio only (the SIP phone has no camera); any video the caller sends is ignored.
+- For this to work, the gateway's Telegram account must **accept calls** from these users (Telegram Settings → Privacy → Calls).
+
 ### Video calls (optional)
 
 Set `VIDEO_SOURCE_URL` in `.env` to turn inbound calls into Telegram **video** calls — the configured user sees that stream as the caller's camera, while audio is still bridged from the SIP side. Any ffmpeg-readable input works (MJPEG/HTTP/RTSP/file):

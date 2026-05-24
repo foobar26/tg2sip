@@ -23,12 +23,16 @@ from .audio_bridge import JitterBuffer
 from .config import Config
 from .sip_agent import IncomingCall, SipAgent, SipCall
 from .telegram_media import TelegramMedia
-from .telegram_signaling import CallDiscardedError, TelegramSignaling
+from .telegram_signaling import (
+    CallDiscardedError, IncomingTgCall, TelegramSignaling,
+)
 
 log = logging.getLogger(__name__)
 
 # Telegram callee has this long to pick up before we give up on the call.
 ANSWER_TIMEOUT_S = 60.0
+# How long to ring the SIP side (TG→SIP) before giving up.
+SIP_ANSWER_TIMEOUT_S = 45.0
 # ntgcalls connection states that mean the media leg died mid-call.
 _FAILED_STATES = ("FAIL", "TIMEOUT")
 
@@ -37,6 +41,7 @@ class State(Enum):
     IDLE = auto()
     SIP_RINGING = auto()      # accepted SIP, ringing TG
     TG_CONFIRMING = auto()    # TG accepted, exchanging keys / starting media
+    TG_RINGING = auto()       # inbound TG call, ringing SIP (TG→SIP)
     BRIDGED = auto()
     TEARDOWN = auto()
 
@@ -53,18 +58,21 @@ class Gateway:
         self._tg_media: Optional[TelegramMedia] = None
         self._sip_port: Optional[pj.AudioMediaPort] = None
         self._active_uid: Optional[int] = None   # resolved TG user id for the live call
+        self._incoming_task: Optional[asyncio.Task] = None  # TG→SIP setup task
 
         self._sip = SipAgent(cfg.sip, on_incoming_call=self._on_incoming_sip_threadsafe)
         self._tg_sig = TelegramSignaling(cfg.telegram)
         self._tg_sig.set_remote_hangup_callback(self._on_tg_remote_hangup)
         self._tg_sig.set_signaling_in_callback(self._on_tg_signaling_in)
+        self._tg_sig.set_incoming_call_callback(self._on_tg_incoming)
 
     async def run(self) -> None:
         self._loop = asyncio.get_running_loop()
         self._sip.start()
         await self._tg_sig.start()
-        log.info("gateway up; forwarding inbound SIP to TG user id=%d",
-                 self._cfg.telegram.forward_user_id)
+        log.info("gateway up (SIP↔TG); SIP→TG fallback uid=%s, TG→SIP routes=%d",
+                 self._cfg.telegram.forward_user_id or "none",
+                 len(self._cfg.telegram.inbound_routes))
 
         stop_event = asyncio.Event()
         try:
@@ -188,6 +196,130 @@ class Gateway:
         async with self._lock:
             self._state = State.BRIDGED
         log.info("call bridged")
+
+    # ---- TG→SIP direction (inbound Telegram call) ---------------------------
+
+    async def _on_tg_incoming(self, incoming: IncomingTgCall) -> None:
+        # Fired from the Pyrogram update handler. Decide quickly and hand the
+        # (slow) setup to a task so we don't block signaling update dispatch.
+        async with self._lock:
+            if self._state is not State.IDLE:
+                log.info("rejecting TG call from %s — busy", incoming.caller_id)
+                await self._tg_sig.discard_incoming(incoming, busy=True)
+                return
+            self._state = State.TG_RINGING
+        self._incoming_task = asyncio.create_task(self._spawn_sip_call(incoming))
+
+    async def _pick_sip_dest(self, caller_id: int) -> Optional[str]:
+        """Map an inbound TG caller to a SIP destination via inbound_routes
+        (numeric id or @username). None = caller not in the table (declined)."""
+        routes = self._cfg.telegram.inbound_routes
+        if not routes:
+            return None
+        if str(caller_id) in routes:
+            return routes[str(caller_id)]
+        uname = await self._tg_sig.username_of(caller_id)
+        if uname and uname in routes:
+            return routes[uname]
+        return None
+
+    def _sip_dest_uri(self, dest: str) -> str:
+        """Turn a route value into a SIP URI: a bare extension → sip:<ext>@<domain>;
+        a value already containing '@' or a sip: scheme is used as-is."""
+        d = dest.strip()
+        if d.startswith("sip:"):
+            return d
+        if "@" in d:
+            return f"sip:{d}"
+        return f"sip:{d}@{self._cfg.sip.domain}"
+
+    async def _spawn_sip_call(self, incoming: IncomingTgCall) -> None:
+        dest = await self._pick_sip_dest(incoming.caller_id)
+        if not dest:
+            log.info("rejecting TG call from %s — not in inbound_routes",
+                     incoming.caller_id)
+            await self._tg_sig.discard_incoming(incoming)
+            async with self._lock:
+                self._state = State.IDLE
+            return
+        dest_uri = self._sip_dest_uri(dest)
+        log.info("routing TG call from %s → SIP %s", incoming.caller_id, dest_uri)
+
+        # Commit: adopt the call so caller-cancel / signaling are tracked.
+        self._tg_sig.bind_incoming(incoming)
+        self._active_uid = incoming.caller_id
+        try:
+            await self._tg_sig.received_call()  # caller's UI shows "ringing"
+
+            # Media objects (audio only toward the phone).
+            self._playback = JitterBuffer(_playback_cap_bytes(self._cfg.bridge))
+            self._tg_media = TelegramMedia(
+                self._playback, self._loop,
+                sample_rate=self._cfg.bridge.tg_sample_rate, video=None,
+            )
+            self._tg_media.set_state_callback(self._on_tg_conn_state_threadsafe)
+            self._tg_media.set_signaling_sender(self._tg_sig.send_signaling_out)
+            await self._tg_media.create_call(incoming.caller_id)
+
+            # Ring the SIP side and wait for it to answer.
+            await self._dial_sip(dest_uri)
+
+            # Phone answered → accept the TG call and finish the key exchange
+            # as the callee (init_exchange with the caller's g_a_hash → g_b).
+            g, p, rnd = await self._tg_sig.get_dh_config()
+            g_b = await self._tg_media.init_exchange(
+                incoming.caller_id, g, p, rnd, g_a_hash=incoming.g_a_hash)
+            protocol = self._tg_media.get_protocol()
+            await self._tg_sig.accept_call(g_b, protocol)
+            est = await self._tg_sig.wait_established(ANSWER_TIMEOUT_S)
+
+            await self._tg_media.exchange_keys(
+                incoming.caller_id, est.g_a_or_b, est.key_fingerprint)
+            await self._tg_media.connect(
+                incoming.caller_id, est.connections,
+                est.protocol.library_versions, est.p2p_allowed)
+            self._tg_media.start_tx_pump()
+        except CallDiscardedError as e:
+            log.info("tg→sip call ended before bridge: %s", e)
+            await self._teardown()
+            return
+        except Exception as e:  # noqa: BLE001
+            log.exception("tg→sip setup failed; tearing down: %s", e)
+            await self._teardown()
+            return
+
+        async with self._lock:
+            self._state = State.BRIDGED
+        log.info("call bridged (tg→sip)")
+
+    async def _dial_sip(self, dest_uri: str) -> None:
+        """Place the outbound SIP call and block until answered (CONFIRMED).
+        Raises CallDiscardedError if it fails / times out."""
+        answered: asyncio.Future = self._loop.create_future()
+
+        def on_state(state_text: str) -> None:  # PJSIP thread
+            if self._loop:
+                asyncio.run_coroutine_threadsafe(
+                    self._on_outbound_sip_state(state_text, answered), self._loop)
+
+        self._sip_call = self._sip.make_call(
+            dest_uri, on_state=on_state, on_media=self._on_sip_media_threadsafe)
+        try:
+            await asyncio.wait_for(answered, timeout=SIP_ANSWER_TIMEOUT_S)
+        except asyncio.TimeoutError:
+            raise CallDiscardedError("sip answer timeout")
+
+    async def _on_outbound_sip_state(self, state_text: str,
+                                     answered: asyncio.Future) -> None:
+        # On the loop, so it's safe to touch the future.
+        if state_text == "CONFIRMED":
+            if not answered.done():
+                answered.set_result(True)
+        elif state_text == "DISCONNECTED":
+            if not answered.done():
+                answered.set_exception(CallDiscardedError("sip side did not answer"))
+            else:
+                await self._teardown()  # far end hung up a live call
 
     def _on_sip_media_threadsafe(self, am: pj.AudioMedia) -> None:
         if not self._loop:

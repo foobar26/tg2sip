@@ -217,6 +217,11 @@ class SipAgent:
 
         tp_cfg = pj.TransportConfig()
         tp_cfg.port = self._cfg.local_port
+        # Bind to a specific interface (default 127.0.0.1) so the SIP port isn't
+        # exposed on public/LAN interfaces — the PBX and registrar are local.
+        # Empty string = bind all interfaces (0.0.0.0). See SIP_BIND_ADDRESS.
+        if self._cfg.bind_address:
+            tp_cfg.boundAddress = self._cfg.bind_address
         transport_type = (
             pj.PJSIP_TRANSPORT_TCP if self._cfg.transport.lower() == "tcp"
             else pj.PJSIP_TRANSPORT_UDP
@@ -229,7 +234,8 @@ class SipAgent:
         # without it startTransmit fails with PJMEDIA_EAUD_NODEFDEV and no audio
         # is ever pulled toward the caller.
         self._ep.audDevManager().setNullDev()
-        log.info("pjsua2 started on port %d/%s (null audio device)",
+        log.info("pjsua2 started on %s:%d/%s (null audio device)",
+                 self._cfg.bind_address or "0.0.0.0",
                  self._cfg.local_port, self._cfg.transport)
 
         for codec, prio in self._cfg.codec_priorities.items():
@@ -257,6 +263,24 @@ class SipAgent:
                 self._ep.libDestroy()
             except Exception:  # noqa: BLE001
                 pass
+
+    def make_call(
+        self,
+        dest_uri: str,
+        on_state: Callable[[str], None],
+        on_media: Callable[[pj.AudioMedia], None],
+    ) -> SipCall:
+        """Place an outbound SIP call (TG→SIP direction) to dest_uri and return
+        the SipCall. on_state/on_media fire as the call progresses (CONFIRMED
+        once the far end answers, then media becomes active)."""
+        if self._acc is None:
+            raise RuntimeError("sip account not ready")
+        call = SipCall(self._acc)
+        call.set_callbacks(on_state=on_state, on_media=on_media)
+        prm = pj.CallOpParam(True)
+        call.makeCall(dest_uri, prm)
+        log.info("outbound sip call → %s", dest_uri)
+        return call
 
     def make_bridge_port(
         self,

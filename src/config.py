@@ -14,6 +14,7 @@ class SipConfig:
     password: str
     domain: str
     registrar: str
+    bind_address: str   # local interface PJSIP binds SIP to ("" = all interfaces)
     transport: str
     local_port: int
     rtp_port_range: tuple[int, int]
@@ -28,6 +29,11 @@ class TelegramConfig:
     session_name: str
     session_dir: Path
     call_protocol: dict
+    # Inbound (TG→SIP) routing/whitelist: {TG identifier → SIP destination}.
+    # Keys are a numeric TG user id or "@username"; values are a SIP extension
+    # (wrapped as sip:<v>@<domain>) or a full sip: URI. Callers absent from this
+    # map are declined, so it doubles as the whitelist.
+    inbound_routes: dict
 
 
 @dataclass(frozen=True)
@@ -84,6 +90,10 @@ def load() -> Config:
         password=_req_env("SIP_PASSWORD"),
         domain=_req_env("SIP_DOMAIN"),
         registrar=os.environ.get("SIP_REGISTRAR") or _req_env("SIP_DOMAIN"),
+        # Bind SIP to loopback by default: the PBX/registrar are local, so the
+        # gateway never needs to be reachable from other hosts or the internet.
+        # Set SIP_BIND_ADDRESS="" (or 0.0.0.0) to listen on all interfaces.
+        bind_address=os.environ.get("SIP_BIND_ADDRESS", "127.0.0.1"),
         transport=sip_raw["transport"],
         local_port=int(sip_raw["local_port"]),
         rtp_port_range=tuple(sip_raw["rtp_port_range"]),  # type: ignore[arg-type]
@@ -100,6 +110,9 @@ def load() -> Config:
         session_name=tg_raw["session_name"],
         session_dir=session_dir,
         call_protocol=tg_raw["call_protocol"],
+        # Normalise keys/values to str (YAML may parse a bare numeric id as int).
+        inbound_routes={str(k): str(v)
+                        for k, v in (tg_raw.get("inbound_routes") or {}).items()},
     )
 
     br_raw = raw["bridge"]

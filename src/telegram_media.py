@@ -134,10 +134,13 @@ class TelegramMedia:
             user_id, ntgcalls.StreamMode.CAPTURE, self._capture_media()
         )
 
-    async def init_exchange(self, user_id: int, g: int, p: bytes, random: bytes) -> bytes:
-        """Outgoing DH start. Returns our g_a_hash for phone.requestCall."""
+    async def init_exchange(self, user_id: int, g: int, p: bytes, random: bytes,
+                            g_a_hash: Optional[bytes] = None) -> bytes:
+        """DH start. Outgoing (g_a_hash=None): returns our g_a_hash for
+        phone.requestCall. Incoming (g_a_hash=caller's): returns our g_b for
+        phone.acceptCall."""
         dh = ntgcalls.DhConfig(g, p, random)
-        return await self._ntg.init_exchange(user_id, dh, None)
+        return await self._ntg.init_exchange(user_id, dh, g_a_hash)
 
     async def exchange_keys(self, user_id: int, g_b: bytes, fingerprint: int) -> "ntgcalls.AuthParams":
         """Derive the call key from the peer's g_b. Returns AuthParams whose

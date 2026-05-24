@@ -12,6 +12,7 @@ import asyncio
 import logging
 import random
 import re
+from dataclasses import dataclass
 from typing import Optional
 
 from pyrogram import Client
@@ -25,6 +26,16 @@ log = logging.getLogger(__name__)
 
 class CallDiscardedError(RuntimeError):
     pass
+
+
+@dataclass
+class IncomingTgCall:
+    """An inbound Telegram call (phoneCallRequested), for the TG→SIP direction."""
+    call_id: int
+    access_hash: int
+    caller_id: int       # admin_id — the Telegram user placing the call
+    g_a_hash: bytes      # caller's g_a hash; fed to ntgcalls to derive g_b
+    video: bool
 
 
 def _protocol_tl(protocol) -> types.PhoneCallProtocol:
@@ -52,10 +63,12 @@ class TelegramSignaling:
         )
         self._call_id: Optional[int] = None
         self._access_hash: Optional[int] = None
-        self._accepted: Optional[asyncio.Future] = None   # -> g_b bytes
-        self._discarded: Optional[asyncio.Future] = None   # -> reason name
+        self._accepted: Optional[asyncio.Future] = None    # -> g_b bytes (outgoing)
+        self._established: Optional[asyncio.Future] = None  # -> PhoneCall (incoming)
+        self._discarded: Optional[asyncio.Future] = None    # -> reason name
         self._on_remote_hangup = None
         self._on_signaling_in = None
+        self._on_incoming_call = None
         self._sig_out_logged = False
         self._sig_in_logged = False
         self._peer_cache: dict[str, types.InputUser] = {}
@@ -75,6 +88,10 @@ class TelegramSignaling:
     def set_signaling_in_callback(self, cb) -> None:
         """cb(data: bytes) — async; fed incoming updatePhoneCallSignalingData."""
         self._on_signaling_in = cb
+
+    def set_incoming_call_callback(self, cb) -> None:
+        """cb(IncomingTgCall) — async; fired when someone calls us (TG→SIP)."""
+        self._on_incoming_call = cb
 
     async def send_signaling_out(self, user_id: int, data: bytes) -> None:
         """Forward ntgcalls' outgoing ICE/handshake blob to the peer."""
@@ -199,12 +216,93 @@ class TelegramSignaling:
         log.info("phone.confirmCall ok, fingerprint=%x", key_fingerprint & 0xFFFFFFFFFFFFFFFF)
         return pc.connections, pc.protocol.library_versions, pc.p2p_allowed
 
+    # ---- incoming call (TG→SIP): we are the callee ------------------------
+
+    def bind_incoming(self, call: "IncomingTgCall") -> None:
+        """Adopt an inbound call as the active one and arm the discard waiter.
+        Call this once the gateway commits to handling it (before ringing SIP),
+        so a caller cancel during SIP ringing is noticed."""
+        loop = asyncio.get_event_loop()
+        self._call_id = call.call_id
+        self._access_hash = call.access_hash
+        self._accepted = None
+        self._established = None
+        self._discarded = loop.create_future()
+        self._sig_out_logged = False
+        self._sig_in_logged = False
+
+    async def received_call(self) -> None:
+        """Tell Telegram we're ringing (caller's UI shows 'ringing', and it keeps
+        the call alive while the SIP side is dialed)."""
+        if self._call_id is None:
+            return
+        try:
+            await self._client.invoke(functions.phone.ReceivedCall(
+                peer=types.InputPhoneCall(id=self._call_id, access_hash=self._access_hash),
+            ))
+        except Exception as e:  # noqa: BLE001
+            log.debug("receivedCall failed: %s", e)
+
+    async def accept_call(self, g_b: bytes, protocol) -> None:
+        """Send phone.acceptCall with our g_b. Arms the established waiter (the
+        caller then confirms, arriving as an updatePhoneCall(phoneCall))."""
+        if self._call_id is None:
+            raise RuntimeError("no incoming call to accept")
+        loop = asyncio.get_running_loop()
+        self._established = loop.create_future()
+        await self._client.invoke(functions.phone.AcceptCall(
+            peer=types.InputPhoneCall(id=self._call_id, access_hash=self._access_hash),
+            g_b=g_b,
+            protocol=_protocol_tl(protocol),
+        ))
+        log.info("phone.acceptCall sent for %s", self._call_id)
+
+    async def wait_established(self, timeout: float):
+        """Block until the caller confirms (returns the established PhoneCall:
+        g_a_or_b, key_fingerprint, connections, protocol, p2p_allowed) or the
+        call is discarded."""
+        assert self._established is not None and self._discarded is not None
+        done, _ = await asyncio.wait(
+            {self._established, self._discarded},
+            timeout=timeout, return_when=asyncio.FIRST_COMPLETED,
+        )
+        if not done:
+            raise CallDiscardedError("timeout waiting for caller to confirm")
+        fut = done.pop()
+        if fut is self._discarded:
+            raise CallDiscardedError(self._discarded.result())
+        return self._established.result()
+
+    async def discard_incoming(self, call: "IncomingTgCall", busy: bool = False) -> None:
+        """Decline an inbound call we won't handle (busy / not whitelisted),
+        without touching the active-call state."""
+        reason = types.PhoneCallDiscardReasonBusy() if busy \
+            else types.PhoneCallDiscardReasonHangup()
+        try:
+            await self._client.invoke(functions.phone.DiscardCall(
+                peer=types.InputPhoneCall(id=call.call_id, access_hash=call.access_hash),
+                duration=0, reason=reason, connection_id=0,
+            ))
+            log.info("declined inbound TG call %s (busy=%s)", call.call_id, busy)
+        except Exception as e:  # noqa: BLE001
+            log.warning("discard_incoming failed: %s", e)
+
+    async def username_of(self, user_id: int) -> Optional[str]:
+        """Return '@username' for a user id (for route matching), or None."""
+        try:
+            u = await self._client.get_users(user_id)
+            return f"@{u.username}" if getattr(u, "username", None) else None
+        except Exception as e:  # noqa: BLE001
+            log.debug("username_of(%s) failed: %s", user_id, e)
+            return None
+
     async def discard_call(self) -> None:
         if self._call_id is None:
             return
         call_id, access_hash = self._call_id, self._access_hash
         self._call_id = None
         self._access_hash = None
+        self._accepted = self._established = self._discarded = None
         try:
             await self._client.invoke(
                 functions.phone.DiscardCall(
@@ -230,14 +328,34 @@ class TelegramSignaling:
         if not isinstance(update, types.UpdatePhoneCall):
             return
         pc = update.phone_call
-        if isinstance(pc, types.PhoneCallAccepted):
+        if isinstance(pc, types.PhoneCallRequested):
+            incoming = IncomingTgCall(
+                call_id=pc.id, access_hash=pc.access_hash, caller_id=pc.admin_id,
+                g_a_hash=pc.g_a_hash, video=bool(getattr(pc, "video", False)),
+            )
+            log.info("incoming TG call from user %s (call_id=%s, video=%s)",
+                     incoming.caller_id, incoming.call_id, incoming.video)
+            if self._on_incoming_call:
+                await self._on_incoming_call(incoming)
+        elif isinstance(pc, types.PhoneCallAccepted):
             if self._accepted and not self._accepted.done():
                 self._accepted.set_result(pc.g_b)
+        elif isinstance(pc, types.PhoneCall):
+            # Established: the caller confirmed our acceptCall (incoming/TG→SIP).
+            if (self._established is not None and not self._established.done()
+                    and self._call_id is not None and pc.id == self._call_id):
+                self._established.set_result(pc)
         elif isinstance(pc, types.PhoneCallDiscarded):
+            if self._call_id is None or pc.id != self._call_id:
+                return
             reason = type(pc.reason).__name__ if pc.reason else "unknown"
-            if self._discarded and not self._discarded.done():
+            # If a setup waiter (wait_accepted / wait_established) is pending, let
+            # it surface the discard; otherwise the call was live → it's a hangup.
+            pending = ((self._accepted is not None and not self._accepted.done())
+                       or (self._established is not None and not self._established.done()))
+            if pending and self._discarded is not None and not self._discarded.done():
                 self._discarded.set_result(reason)
-            elif self._call_id is not None and pc.id == self._call_id:
+            else:
                 log.info("remote discarded active call (%s)", reason)
                 self._call_id = None
                 self._access_hash = None

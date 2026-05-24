@@ -264,6 +264,24 @@ class SipAgent:
             except Exception:  # noqa: BLE001
                 pass
 
+    def make_call(
+        self,
+        dest_uri: str,
+        on_state: Callable[[str], None],
+        on_media: Callable[[pj.AudioMedia], None],
+    ) -> SipCall:
+        """Place an outbound SIP call (TG→SIP direction) to dest_uri and return
+        the SipCall. on_state/on_media fire as the call progresses (CONFIRMED
+        once the far end answers, then media becomes active)."""
+        if self._acc is None:
+            raise RuntimeError("sip account not ready")
+        call = SipCall(self._acc)
+        call.set_callbacks(on_state=on_state, on_media=on_media)
+        prm = pj.CallOpParam(True)
+        call.makeCall(dest_uri, prm)
+        log.info("outbound sip call → %s", dest_uri)
+        return call
+
     def make_bridge_port(
         self,
         sample_rate: int,

@@ -121,10 +121,6 @@ class TelegramMedia:
 
     # ---- call setup (async ntgcalls calls; run from the orchestrator) -------
 
-    def get_protocol(self) -> "ntgcalls.Protocol":
-        """The library's own protocol descriptor (layers + versions). Sync."""
-        return self._ntg.get_protocol()
-
     async def create_call(self, user_id: int) -> None:
         self._user_id = user_id
         # ntgcalls 2.x: create_p2p_call takes no media; capture sources are set

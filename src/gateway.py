@@ -73,6 +73,10 @@ class Gateway:
         log.info("gateway up (SIP↔TG); SIP→TG fallback uid=%s, TG→SIP routes=%d",
                  self._cfg.telegram.forward_user_id or "none",
                  len(self._cfg.telegram.inbound_routes))
+        cp = self._cfg.telegram.call_protocol
+        log.info("offering call_protocol: layers=%s-%s versions=%s",
+                 cp.get("min_layer"), cp.get("max_layer"),
+                 list(cp.get("library_versions") or []))
 
         stop_event = asyncio.Event()
         try:
@@ -158,7 +162,7 @@ class Gateway:
             # 2. Start the DH exchange → g_a_hash.
             g, p, rnd = await self._tg_sig.get_dh_config()
             g_a_hash = await self._tg_media.init_exchange(uid, g, p, rnd)
-            protocol = self._tg_media.get_protocol()
+            protocol = self._cfg.telegram.call_protocol
 
             # 3. phone.requestCall (video flag set when an MJPEG source is configured).
             await self._tg_sig.request_call(
@@ -285,7 +289,7 @@ class Gateway:
             g, p, rnd = await self._tg_sig.get_dh_config()
             g_b = await self._tg_media.init_exchange(
                 incoming.caller_id, g, p, rnd, g_a_hash=incoming.g_a_hash)
-            protocol = self._tg_media.get_protocol()
+            protocol = self._cfg.telegram.call_protocol
             await self._tg_sig.accept_call(g_b, protocol)
             est = await self._tg_sig.wait_established(ANSWER_TIMEOUT_S)
 

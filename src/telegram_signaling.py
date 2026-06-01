@@ -38,14 +38,18 @@ class IncomingTgCall:
     video: bool
 
 
-def _protocol_tl(protocol) -> types.PhoneCallProtocol:
-    """Build a TL PhoneCallProtocol from an ntgcalls Protocol object."""
+def _protocol_tl(protocol: dict) -> types.PhoneCallProtocol:
+    """Build a TL PhoneCallProtocol from the config's call_protocol dict.
+    Telegram negotiates a library_version from the intersection of both sides'
+    offers; ntgcalls then picks one it actually implements when ``connect()``
+    is called. So config controls what we OFFER — what runs is still capped
+    by what the installed ntgcalls supports."""
     return types.PhoneCallProtocol(
-        min_layer=protocol.min_layer,
-        max_layer=protocol.max_layer,
-        udp_p2p=protocol.udp_p2p,
-        udp_reflector=protocol.udp_reflector,
-        library_versions=list(protocol.library_versions),
+        min_layer=int(protocol["min_layer"]),
+        max_layer=int(protocol["max_layer"]),
+        udp_p2p=bool(protocol["udp_p2p"]),
+        udp_reflector=bool(protocol["udp_reflector"]),
+        library_versions=list(protocol["library_versions"]),
     )
 
 

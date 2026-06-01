@@ -14,7 +14,7 @@ telegram:
     max_layer: 92
     udp_p2p: true
     udp_reflector: true
-    library_versions: ["3.0.0"]
+    library_versions: ["8.0.0", "9.0.0"]   # match ntgcalls 2.1.0's native offer
   # TG→SIP routing + whitelist. When one of these Telegram accounts CALLS the
   # gateway, it dials the mapped SIP destination; callers not listed are declined.
   # Keys: numeric TG user id, "@username", or "+<phone>" (E.164). A phone key is

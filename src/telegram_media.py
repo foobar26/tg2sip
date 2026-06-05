@@ -145,7 +145,9 @@ class TelegramMedia:
 
     async def connect(self, user_id: int, connections, versions, p2p_allowed: bool) -> None:
         servers = _build_servers(connections)
-        await self._ntg.connect_p2p(user_id, servers, list(versions), p2p_allowed)
+        # ntgcalls v2.2+ added a 6th param `custom_parameters` (e.g. for the KCP
+        # experiment); we don't use any so pass None.
+        await self._ntg.connect_p2p(user_id, servers, list(versions), p2p_allowed, None)
         # create_p2p_call only wired the capture (microphone) side; register the
         # PLAYBACK source so remote audio is delivered as EXTERNAL frames via
         # the on_frames callback (otherwise the SIP side only ever hears silence).

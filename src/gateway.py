@@ -37,6 +37,12 @@ SIP_ANSWER_TIMEOUT_S = 45.0
 _FAILED_STATES = ("FAIL", "TIMEOUT")
 
 
+def _highest_version(versions) -> str:
+    """Highest semver in the list — what ntgcalls' bestMatch will pick."""
+    items = [list(map(int, v.split("."))) for v in versions]
+    return ".".join(map(str, max(items))) if items else "?"
+
+
 class State(Enum):
     IDLE = auto()
     SIP_RINGING = auto()      # accepted SIP, ringing TG
@@ -177,6 +183,8 @@ class Gateway:
             connections, versions, p2p_allowed = await self._tg_sig.confirm_call(
                 auth.g_a_or_b, auth.key_fingerprint, protocol
             )
+            log.info("negotiated library_versions=%s; ntgcalls will use %s",
+                     list(versions), _highest_version(versions))
             await self._tg_media.connect(uid, connections, versions, p2p_allowed)
             self._tg_media.start_tx_pump()
             self._tg_media.start_video_feeder()
@@ -295,6 +303,9 @@ class Gateway:
 
             await self._tg_media.exchange_keys(
                 incoming.caller_id, est.g_a_or_b, est.key_fingerprint)
+            log.info("negotiated library_versions=%s; ntgcalls will use %s",
+                     list(est.protocol.library_versions),
+                     _highest_version(est.protocol.library_versions))
             await self._tg_media.connect(
                 incoming.caller_id, est.connections,
                 est.protocol.library_versions, est.p2p_allowed)

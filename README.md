@@ -33,7 +33,15 @@ Working end-to-end: inbound SIP calls bridge to a Telegram P2P call with **two-w
 
 > **NTgCalls is built from source, not pip-installed.** The P2P call code in `src/telegram_media.py` targets the `ntgcalls` 2.x API (`create_p2p_call` + `set_stream_sources(CAPTURE)`, `init_exchange`/`exchange_keys`/`connect_p2p`, the signaling relay, and the Playback-on-`microphone` quirk). The Dockerfile's `ntgcalls-build` stage compiles ntgcalls **with the openh264 (H264) software encoder removed** — that encoder uses AVX2 and **crashes (SIGILL) on pre-AVX2 CPUs** (e.g. Ivy Bridge / older), and ntgcalls 2.x no longer lets you disable it at runtime. Stripping it forces VP8/VP9. On a CPU **with** AVX2 you could instead just `pip install ntgcalls` and drop the build stage. If you bump the ntgcalls version, revisit `telegram_media.py` and the patch line — the API and internals change across versions.
 
-If you'd rather use a different stack, the C++ project [kruglinski/tg2sip](https://github.com/kruglinski/tg2sip) (PJSIP + libtgvoip) is an older but battle-tested alternative built specifically for this.
+### Tested clients
+
+| Telegram client | Negotiated `library_version` | Status |
+|---|---|---|
+| Telegram Android / iOS / Desktop | 9.0.0 (V2 signaling, external relay) | ✅ Two-way audio + outgoing video |
+| Telegram WebK (`web.telegram.org/k/`) | 12.0.0 / 13.0.0 (V3 signaling, SCTP + gzip) | ✅ Two-way audio + outgoing video — requires the `dev`-branch ntgcalls pinned in the Dockerfile |
+| Telegram WebA (`web.telegram.org/a/`) | — | ⚠️ Untested — WebA's outbound-call path appears broken in the client itself (even WebA → mobile direct calls fail), independent of this gateway |
+
+The gateway offers `["8.0.0", "9.0.0", "12.0.0", "13.0.0"]` in `config/config.yaml`; the actually-used version is the highest in the intersection with the peer's offer and is logged per call (`negotiated library_versions=…; ntgcalls will use …`). WebK rejects offers that don't include 12/13 with `[406 CALL_PROTOCOL_COMPAT_LAYER_INVALID]`, so the dev-branch pin is required for WebK compatibility — see [pytgcalls/ntgcalls#46](https://github.com/pytgcalls/ntgcalls/issues/46).
 
 ## Prerequisites
 

@@ -43,8 +43,6 @@ Working end-to-end: inbound SIP calls bridge to a Telegram P2P call with **two-w
 
 The gateway offers `["8.0.0", "9.0.0", "12.0.0", "13.0.0"]` in `config/config.yaml`; the actually-used version is the highest in the intersection with the peer's offer and is logged per call (`negotiated library_versions=…; ntgcalls will use …`). WebK rejects offers that don't include 12/13 with `[406 CALL_PROTOCOL_COMPAT_LAYER_INVALID]`, so the dev-branch pin is required for WebK compatibility — see [pytgcalls/ntgcalls#46](https://github.com/pytgcalls/ntgcalls/issues/46).
 
-If you'd rather use a different stack, the C++ project [kruglinski/tg2sip](https://github.com/kruglinski/tg2sip) (PJSIP + libtgvoip) is an older but battle-tested alternative built specifically for this.
-
 ## Prerequisites
 
 1. **A separate Telegram phone number for the gateway.** It cannot share an account with the destination user. Use a spare SIM, a virtual number (e.g. JMP.chat, TextNow, etc.), or any number that can receive a Telegram login SMS.

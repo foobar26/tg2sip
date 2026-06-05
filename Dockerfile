@@ -39,14 +39,24 @@ RUN make python \
 # rebuild. All heavy deps (WebRTC, Clang, Boost, ffmpeg, GLib, X11, Mesa) are
 # downloaded prebuilt by cmake — only the small wrapper compiles here.
 FROM python:3.11-slim-bookworm AS ntgcalls-build
-ARG NTGCALLS_VERSION=v2.1.0
+# Pinned to the v12/v13 protocol support commit on `dev` (pytgcalls/ntgcalls
+# issue #46). Bump together with config library_versions when upstream tags a
+# new release. Accepts a tag, branch, or commit SHA — the init+fetch pattern
+# below works for any of them (a plain `git clone --branch` does not accept SHAs).
+ARG NTGCALLS_VERSION=a1527b62269b6072a665427b0abc0301c11f21b6
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git curl ca-certificates build-essential python3-dev \
     libasound2-dev libpulse-dev flex libelf-dev texinfo \
+    libx11-dev libxext-dev libxrandr-dev libxcomposite-dev \
+    libxcursor-dev libxdamage-dev libxfixes-dev libxi-dev libxtst-dev \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /build
-RUN git clone --depth 1 --branch ${NTGCALLS_VERSION} --recurse-submodules --shallow-submodules \
-    https://github.com/pytgcalls/ntgcalls.git
+RUN git init ntgcalls \
+    && cd ntgcalls \
+    && git remote add origin https://github.com/pytgcalls/ntgcalls.git \
+    && git fetch --depth 1 origin ${NTGCALLS_VERSION} \
+    && git checkout FETCH_HEAD \
+    && git submodule update --init --recursive --depth 1
 WORKDIR /build/ntgcalls
 # Remove ONLY the openh264 software encoder (decoder kept); forces VP8/VP9.
 RUN sed -i '/openh264::addEncoders/d' wrtc/src/video_factory/video_factory_config.cpp \

@@ -46,6 +46,13 @@ from .audio_bridge import JitterBuffer
 log = logging.getLogger(__name__)
 
 
+def _media(microphone=None, speaker=None, camera=None, screen=None) -> "ntgcalls.MediaDescription":
+    # ntgcalls 3.x MediaDescription has no defaults: every slot must be passed.
+    return ntgcalls.MediaDescription(
+        microphone=microphone, speaker=speaker, camera=camera, screen=screen,
+    )
+
+
 class TelegramMedia:
     def __init__(
         self,
@@ -290,6 +297,7 @@ class TelegramMedia:
             sample_rate=self._sr,
             channel_count=self._ch,
             input="",
+            keep_open=False,
         )
 
     def _capture_media(self) -> "ntgcalls.MediaDescription":
@@ -304,11 +312,10 @@ class TelegramMedia:
                 height=self._video.height,
                 fps=self._video.fps,
                 input="",
+                keep_open=False,
             )
-            return ntgcalls.MediaDescription(
-                microphone=self._audio_external(), camera=video,
-            )
-        return ntgcalls.MediaDescription(microphone=self._audio_external())
+            return _media(microphone=self._audio_external(), camera=video)
+        return _media(microphone=self._audio_external())
 
     @property
     def video_enabled(self) -> bool:
@@ -438,7 +445,7 @@ class TelegramMedia:
         # adds addTrack(Playback, Microphone) and optimizeSources only enables
         # incoming audio when Microphone is an external writer), so the playback
         # sink must be set on `microphone`, not `speaker`, to receive on_frames.
-        return ntgcalls.MediaDescription(microphone=self._audio_external())
+        return _media(microphone=self._audio_external())
 
     async def stop(self) -> None:
         proc = self._video_proc

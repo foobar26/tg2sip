@@ -35,15 +35,15 @@ RUN make python \
 
 # ---- ntgcalls: build from source with the H264 (openh264) encoder stripped ----
 # The prebuilt ntgcalls wheel's openh264 ENCODER uses AVX2 and SIGILLs on
-# pre-AVX2 CPUs, and 2.x removed the runtime toggle. We strip that one line and
+# pre-AVX2 CPUs, and 2.x+ removed the runtime toggle. We strip that one line and
 # rebuild. All heavy deps (WebRTC, Clang, Boost, ffmpeg, GLib, X11, Mesa) are
 # downloaded prebuilt by cmake — only the small wrapper compiles here.
 FROM python:3.11-slim-bookworm AS ntgcalls-build
-# Pinned to the v12/v13 protocol support commit on `dev` (pytgcalls/ntgcalls
-# issue #46). Bump together with config library_versions when upstream tags a
-# new release. Accepts a tag, branch, or commit SHA — the init+fetch pattern
-# below works for any of them (a plain `git clone --branch` does not accept SHAs).
-ARG NTGCALLS_VERSION=a1527b62269b6072a665427b0abc0301c11f21b6
+# v3.0.0 is the first release with v12/v13 protocol support (needed by WebK,
+# pytgcalls/ntgcalls issue #46). Bump together with config library_versions.
+# Accepts a tag, branch, or commit SHA — the init+fetch pattern below works for
+# any of them (a plain `git clone --branch` does not accept SHAs).
+ARG NTGCALLS_VERSION=v3.0.0
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git curl ca-certificates build-essential python3-dev \
     libasound2-dev libpulse-dev flex libelf-dev texinfo \
@@ -59,8 +59,14 @@ RUN git init ntgcalls \
     && git submodule update --init --recursive --depth 1
 WORKDIR /build/ntgcalls
 # Remove ONLY the openh264 software encoder (decoder kept); forces VP8/VP9.
-RUN sed -i '/openh264::addEncoders/d' wrtc/src/video_factory/video_factory_config.cpp \
-    && ! grep -q 'openh264::addEncoders' wrtc/src/video_factory/video_factory_config.cpp \
+# The call is `openh264::add_encoders` in 3.x (`addEncoders` in 2.x). Fail the
+# build if it isn't found, so an upstream rename can't silently skip the patch
+# (the result would SIGILL on pre-AVX2 CPUs as soon as video starts).
+RUN f=wrtc/src/video_factory/video_factory_config.cpp \
+    && grep -Eq 'openh264::(add_encoders|addEncoders)' "$f" \
+    && sed -Ei '/openh264::(add_encoders|addEncoders)/d' "$f" \
+    && ! grep -Eq 'openh264::(add_encoders|addEncoders)' "$f" \
+    && grep -Eq 'openh264::(add_decoders|addDecoders)' "$f" \
     && echo "openh264 encoder stripped"
 # Build the wheel (downloads prebuilt clang/webrtc/boost/ffmpeg/... then compiles).
 RUN pip wheel . --no-deps -w /wheels && ls -la /wheels

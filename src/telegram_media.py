@@ -99,7 +99,7 @@ class TelegramMedia:
 
         self._ntg.on_frames(self._on_frames)
         self._ntg.on_connection_change(self._on_connection_change)
-        self._ntg.on_signaling(self._on_signaling)
+        self._ntg.on_signaling_data(self._on_signaling)
 
     def set_state_callback(self, cb: Callable[[str], None]) -> None:
         """cb(state_name) — fired (on an ntgcalls thread) on connection change."""
@@ -123,7 +123,7 @@ class TelegramMedia:
 
     async def create_call(self, user_id: int) -> None:
         self._user_id = user_id
-        # ntgcalls 2.x: create_p2p_call takes no media; capture sources are set
+        # ntgcalls 2.x+: create_p2p_call takes no media; capture sources are set
         # separately (1.3.4 took the media directly in create_p2p_call).
         await self._ntg.create_p2p_call(user_id)
         await self._ntg.set_stream_sources(
@@ -197,7 +197,7 @@ class TelegramMedia:
                 pass
 
     async def _tx_pump(self) -> None:
-        frame_data = ntgcalls.FrameData(0, 0, 0, 0)
+        frame_data = ntgcalls.FrameData(0, ntgcalls.VideoRotation.VIDEO_ROTATION_0, 0, 0)
         sent = 0
         while True:
             chunk = await self._tx_queue.get()
@@ -270,7 +270,7 @@ class TelegramMedia:
                 log.debug("signaling: first incoming blob → ntgcalls (%d bytes)", len(data))
             if self._user_id is not None:
                 try:
-                    await self._ntg.send_signaling(self._user_id, data)
+                    await self._ntg.send_signaling_data(self._user_id, data)
                 except asyncio.CancelledError:
                     raise
                 except Exception as e:  # noqa: BLE001
@@ -418,7 +418,7 @@ class TelegramMedia:
             try:
                 await self._ntg.send_external_frame(
                     self._user_id, ntgcalls.StreamDevice.CAMERA,
-                    frame, ntgcalls.FrameData(ms, 0, w, h),
+                    frame, ntgcalls.FrameData(ms, ntgcalls.VideoRotation.VIDEO_ROTATION_0, w, h),
                 )
                 sent += 1
                 if sent == 1:

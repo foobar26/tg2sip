@@ -38,10 +38,10 @@ Working end-to-end: inbound SIP calls bridge to a Telegram P2P call with **two-w
 | Telegram client | Negotiated `library_version` | Status |
 |---|---|---|
 | Telegram Android / iOS / Desktop | 9.0.0 (V2 signaling, external relay) | ✅ Two-way audio + outgoing video |
-| Telegram WebK (`web.telegram.org/k/`) | 12.0.0 / 13.0.0 (V3 signaling, SCTP + gzip) | ✅ Two-way audio + outgoing video — requires ntgcalls ≥ 3.0.0 (pinned in the Dockerfile) |
-| Telegram WebA (`web.telegram.org/a/`) | — | ⚠️ Untested — WebA's outbound-call path appears broken in the client itself (even WebA → mobile direct calls fail), independent of this gateway |
+| Telegram WebK (`web.telegram.org/k/`) | 12.0.0 / 13.0.0 (V3 signaling, SCTP + gzip) | ✅ Two-way audio + outgoing video — requires ntgcalls ≥ 3.0.0 (pinned in the Dockerfile). WebK shows no call button in Firefox; use a Chromium-based browser |
+| Telegram WebA (`web.telegram.org/a/`) | 13.0.0 | ✅ Working (tested in Chrome) — requires ntgcalls ≥ 3.0.0 |
 
-The gateway offers `["8.0.0", "9.0.0", "12.0.0", "13.0.0"]` in `config/config.yaml`; the actually-used version is the highest in the intersection with the peer's offer and is logged per call (`negotiated library_versions=…; ntgcalls will use …`). WebK rejects offers that don't include 12/13 with `[406 CALL_PROTOCOL_COMPAT_LAYER_INVALID]`, so ntgcalls ≥ 3.0.0 (the first release with v12/v13) is required for WebK compatibility — see [pytgcalls/ntgcalls#46](https://github.com/pytgcalls/ntgcalls/issues/46).
+The gateway offers `["8.0.0", "9.0.0", "12.0.0", "13.0.0"]` in `config/config.yaml`; the actually-used version is the highest in the intersection with the peer's offer and is logged per call (`negotiated library_versions=…; ntgcalls will use …`). WebK rejects offers that don't include 12/13 with `[406 CALL_PROTOCOL_COMPAT_LAYER_INVALID]`, so ntgcalls ≥ 3.0.0 (the first release with v12/v13) is required for WebK/WebA compatibility — see [pytgcalls/ntgcalls#46](https://github.com/pytgcalls/ntgcalls/issues/46).
 
 ## Prerequisites
 

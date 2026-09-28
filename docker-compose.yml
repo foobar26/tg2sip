@@ -1,6 +1,11 @@
 services:
   gateway:
-    build: .
+    build:
+      context: .
+      args:
+        # 1 = build ntgcalls without the openh264 encoder (video uses VP8);
+        # 0 = stock wheel (H264). Rebuild after changing: docker compose up -d --build
+        NTGCALLS_STRIP_H264: ${NTGCALLS_STRIP_H264:-0}
     container_name: tg2sip
     restart: unless-stopped
     network_mode: host

@@ -1,6 +1,6 @@
 pyrogram==2.0.106
 tgcrypto==1.2.5
-# ntgcalls is built from source (H264 encoder stripped) in the Dockerfile and
-# installed as a local wheel — see the ntgcalls-build stage.
+# ntgcalls is installed in the Dockerfile's ntgcalls-build stage (stock wheel,
+# or built from source without openh264 when NTGCALLS_STRIP_H264=1).
 pyyaml==6.0.2
 python-dotenv==1.0.1

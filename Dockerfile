@@ -33,17 +33,24 @@ RUN make python \
     && pip install --no-cache-dir . \
     && python -c "import pjsua2; print('pjsua2 ok at', pjsua2.__file__)"
 
-# ---- ntgcalls: build from source with the H264 (openh264) encoder stripped ----
-# The prebuilt ntgcalls wheel's openh264 ENCODER uses AVX2 and SIGILLs on
-# pre-AVX2 CPUs, and 2.x+ removed the runtime toggle. We strip that one line and
-# rebuild. All heavy deps (WebRTC, Clang, Boost, ffmpeg, GLib, X11, Mesa) are
-# downloaded prebuilt by cmake — only the small wrapper compiles here.
+# ---- ntgcalls: stock PyPI wheel, or built from source without openh264 ----
+# By default this just fetches the upstream wheel (video then uses H264 via
+# openh264). NTGCALLS_STRIP_H264=1 instead rebuilds ntgcalls with the openh264
+# encoder removed, forcing VP8 — ntgcalls has no runtime codec switch. That was
+# needed for ntgcalls < 3.0.0, whose openh264 encoder SIGILLed on pre-AVX2 CPUs
+# (issue #6); 3.0.0 runs fine there. All heavy deps (WebRTC, Clang, Boost,
+# ffmpeg, GLib, X11, Mesa) are downloaded prebuilt by cmake, so the source build
+# only compiles the small wrapper.
 FROM python:3.11-slim-bookworm AS ntgcalls-build
 # v3.0.0 is the first release with v12/v13 protocol support (needed by WebK,
 # pytgcalls/ntgcalls issue #46). Bump together with config library_versions.
 # Accepts a tag, branch, or commit SHA — the init+fetch pattern below works for
 # any of them (a plain `git clone --branch` does not accept SHAs).
 ARG NTGCALLS_VERSION=v3.0.0
+# 0 (default): install the stock PyPI wheel (NTGCALLS_VERSION must be a release
+# tag, e.g. v3.0.0). 1: build from source with the openh264 encoder stripped
+# (VP8 only; NTGCALLS_VERSION may then also be a branch or commit SHA).
+ARG NTGCALLS_STRIP_H264=0
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git curl ca-certificates build-essential python3-dev \
     libasound2-dev libpulse-dev flex libelf-dev texinfo \
@@ -51,8 +58,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxcursor-dev libxdamage-dev libxfixes-dev libxi-dev libxtst-dev \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /build
-RUN git init ntgcalls \
-    && cd ntgcalls \
+RUN mkdir ntgcalls && [ "$NTGCALLS_STRIP_H264" = 0 ] && exit 0; \
+    cd ntgcalls \
+    && git init \
     && git remote add origin https://github.com/pytgcalls/ntgcalls.git \
     && git fetch --depth 1 origin ${NTGCALLS_VERSION} \
     && git checkout FETCH_HEAD \
@@ -61,15 +69,21 @@ WORKDIR /build/ntgcalls
 # Remove ONLY the openh264 software encoder (decoder kept); forces VP8/VP9.
 # The call is `openh264::add_encoders` in 3.x (`addEncoders` in 2.x). Fail the
 # build if it isn't found, so an upstream rename can't silently skip the patch
-# (the result would SIGILL on pre-AVX2 CPUs as soon as video starts).
-RUN f=wrtc/src/video_factory/video_factory_config.cpp \
+# (the result would silently still offer H264).
+RUN [ "$NTGCALLS_STRIP_H264" = 0 ] && exit 0; \
+    f=wrtc/src/video_factory/video_factory_config.cpp \
     && grep -Eq 'openh264::(add_encoders|addEncoders)' "$f" \
     && sed -Ei '/openh264::(add_encoders|addEncoders)/d' "$f" \
     && ! grep -Eq 'openh264::(add_encoders|addEncoders)' "$f" \
     && grep -Eq 'openh264::(add_decoders|addDecoders)' "$f" \
     && echo "openh264 encoder stripped"
-# Build the wheel (downloads prebuilt clang/webrtc/boost/ffmpeg/... then compiles).
-RUN pip wheel . --no-deps -w /wheels && ls -la /wheels
+# Build the wheel (downloads prebuilt clang/webrtc/boost/ffmpeg/... then compiles),
+# or in stock mode just fetch the upstream wheel.
+RUN if [ "$NTGCALLS_STRIP_H264" = 0 ]; then \
+        pip download --no-deps --only-binary=:all: -d /wheels "ntgcalls==${NTGCALLS_VERSION#v}"; \
+    else \
+        pip wheel . --no-deps -w /wheels; \
+    fi && ls -la /wheels
 
 FROM python:3.11-slim-bookworm
 
@@ -104,7 +118,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt \
     && pip install --no-cache-dir /tmp/wheels/*.whl \
     && rm -rf /tmp/wheels \
-    && python -c "import ntgcalls; ntgcalls.NTgCalls(); print('custom ntgcalls ok', getattr(ntgcalls,'__version__','?'))"
+    && python -c "import ntgcalls; ntgcalls.NTgCalls(); print('ntgcalls ok', getattr(ntgcalls,'__version__','?'))"
 
 COPY src/ ./src/
 

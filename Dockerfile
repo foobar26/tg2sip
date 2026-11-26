@@ -46,7 +46,7 @@ FROM python:3.11-slim-bookworm AS ntgcalls-build
 # pytgcalls/ntgcalls issue #46). Bump together with config library_versions.
 # Accepts a tag, branch, or commit SHA — the init+fetch pattern below works for
 # any of them (a plain `git clone --branch` does not accept SHAs).
-ARG NTGCALLS_VERSION=v3.0.0
+ARG NTGCALLS_VERSION=v3.0.7
 # 0 (default): install the stock PyPI wheel (NTGCALLS_VERSION must be a release
 # tag, e.g. v3.0.0). 1: build from source with the openh264 encoder stripped
 # (VP8 only; NTGCALLS_VERSION may then also be a branch or commit SHA).

@@ -32,6 +32,7 @@ telegram:
   #  "+4915112345678": "12"      # TG phone    → SIP extension 12
   #  "@somebody":      "200"     # TG username → extension 200
   #  "234567890": "sip:door@10.0.0.5"   # full URI
+  #  "*":              "300"     # catch-all: any other TG caller → extension 300
 
 bridge:
   sip_sample_rate: 8000

@@ -225,7 +225,8 @@ class Gateway:
     async def _pick_sip_dest(self, caller_id: int) -> Optional[str]:
         """Map an inbound TG caller to a SIP destination via inbound_routes. Keys
         may be a numeric TG user id, "@username", or "+<phone>" (resolved to a
-        user id and cached). None = caller not in the table (declined)."""
+        user id and cached). A "*" key is a catch-all for any other caller.
+        None = no match and no "*" (declined)."""
         routes = self._cfg.telegram.inbound_routes
         if not routes:
             return None
@@ -247,7 +248,8 @@ class Gateway:
                     continue
                 if uid == caller_id:
                     return dest
-        return None
+        # 4. catch-all: specific routes above win, "*" takes everyone else
+        return routes.get("*")
 
     def _sip_dest_uri(self, dest: str) -> str:
         """Turn a route value into a SIP URI: a bare extension → sip:<ext>@<domain>;
@@ -262,7 +264,7 @@ class Gateway:
     async def _spawn_sip_call(self, incoming: IncomingTgCall) -> None:
         dest = await self._pick_sip_dest(incoming.caller_id)
         if not dest:
-            log.info("rejecting TG call from %s — not in inbound_routes",
+            log.info("rejecting TG call from %s — not in inbound_routes (no \"*\")",
                      incoming.caller_id)
             await self._tg_sig.discard_incoming(incoming)
             async with self._lock:

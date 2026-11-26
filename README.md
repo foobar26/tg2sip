@@ -114,7 +114,7 @@ Notes: the phone number must be **E.164 with the leading `+`** (plain digits are
 
 The gateway also works **the other way**: when a whitelisted Telegram account *calls the gateway's Telegram account*, it dials a SIP extension and bridges the audio. The caller hears Telegram's ringback while the phone rings; once the phone answers, audio bridges both ways.
 
-Configure the routes in `config/config.yaml` under `telegram.inbound_routes` — this map is **also the whitelist**: callers not listed are declined.
+Configure the routes in `config/config.yaml` under `telegram.inbound_routes` — this map is **also the whitelist**: callers not listed are declined, unless you add a `"*"` catch-all.
 
 ```yaml
 telegram:
@@ -123,6 +123,7 @@ telegram:
     "+4915112345678": "100"            # TG phone    → SIP extension 100
     "@somebody":      "200"            # TG username → SIP extension 200
     "234567890": "sip:door@10.0.0.5"   # full SIP URI also allowed
+    "*":              "300"            # optional: anyone else → extension 300
 ```
 
 | Route key | Matches |
@@ -130,6 +131,7 @@ telegram:
 | `"123456789"` (quoted digits) | the caller's **numeric Telegram user id** (most reliable) |
 | `"+4915112345678"` (E.164) | the caller's **phone number** — resolved to a user id (see note) |
 | `"@somebody"` | the caller's Telegram **username** |
+| `"*"` | **any other caller** (checked last, so specific keys still win). Without it, unlisted callers are declined. Note this lets anyone who can call the gateway's Telegram account ring the extension; narrow it with Telegram Settings → Privacy → Calls if needed |
 
 | Route value | Dials |
 |---|---|

@@ -36,6 +36,10 @@ class IncomingTgCall:
     caller_id: int       # admin_id — the Telegram user placing the call
     g_a_hash: bytes      # caller's g_a hash; fed to ntgcalls to derive g_b
     video: bool
+    first_name: str = ""
+    last_name: str = ""
+    username: str = ""
+    phone: str = ""
 
 
 def _protocol_tl(protocol: dict) -> types.PhoneCallProtocol:
@@ -160,7 +164,15 @@ class TelegramSignaling:
             )
         )
         for u in imported.users:
-            return types.InputUser(user_id=u.id, access_hash=u.access_hash)
+            iu = types.InputUser(user_id=u.id, access_hash=u.access_hash)
+            # Delete the just-imported contact: while it sits in our contact
+            # list, Telegram substitutes the import name ("tg2sip") into User
+            # objects, poisoning X-TG-FirstName/LastName on inbound calls.
+            try:
+                await self._client.invoke(functions.contacts.DeleteContacts(id=[iu]))
+            except Exception as e:  # noqa: BLE001
+                log.debug("deleteContacts failed: %s", e)
+            return iu
         raise RuntimeError(f"phone {phone} is not a Telegram user")
 
     async def request_call(self, input_user: "types.InputUser", g_a_hash: bytes,
@@ -333,9 +345,15 @@ class TelegramSignaling:
             return
         pc = update.phone_call
         if isinstance(pc, types.PhoneCallRequested):
+            users = _users.values() if hasattr(_users, "values") else (_users or [])
+            caller = next((u for u in users if getattr(u, "id", None) == pc.admin_id), None)
             incoming = IncomingTgCall(
                 call_id=pc.id, access_hash=pc.access_hash, caller_id=pc.admin_id,
                 g_a_hash=pc.g_a_hash, video=bool(getattr(pc, "video", False)),
+                first_name=getattr(caller, "first_name", "") or "",
+                last_name=getattr(caller, "last_name", "") or "",
+                username=getattr(caller, "username", "") or "",
+                phone=getattr(caller, "phone", "") or "",
             )
             log.info("incoming TG call from user %s (call_id=%s, video=%s)",
                      incoming.caller_id, incoming.call_id, incoming.video)

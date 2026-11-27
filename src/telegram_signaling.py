@@ -42,6 +42,18 @@ class IncomingTgCall:
     phone: str = ""
 
 
+# First name the gateway gives contacts it imports to look up a phone number.
+_IMPORT_NAME = "tg2sip"
+
+
+def _is_import_leftover(u) -> bool:
+    """A contact named exactly like our imports (and nothing else) was left
+    behind by the gateway itself, e.g. by a version that didn't clean up."""
+    return (bool(getattr(u, "contact", False))
+            and (getattr(u, "first_name", "") or "") == _IMPORT_NAME
+            and not getattr(u, "last_name", ""))
+
+
 def _protocol_tl(protocol: dict) -> types.PhoneCallProtocol:
     """Build a TL PhoneCallProtocol from the config's call_protocol dict.
     Telegram negotiates a library_version from the intersection of both sides'
@@ -152,26 +164,55 @@ class TelegramSignaling:
         self._peer_cache[key] = iu
         return iu.user_id, iu
 
+    async def _drop_contact(self, iu: "types.InputUser") -> None:
+        try:
+            await self._client.invoke(functions.contacts.DeleteContacts(id=[iu]))
+        except Exception as e:  # noqa: BLE001
+            log.debug("deleteContacts failed: %s", e)
+
     async def _resolve_phone(self, phone: str) -> "types.InputUser":
-        # Import the number as a contact to discover the Telegram user (also helps
-        # the callee get a proper ring, since the gateway becomes a contact).
+        """Find the Telegram user behind an E.164 number without leaving the
+        gateway account's contact list changed."""
+        digits = phone.lstrip("+")
+
+        # 1. Already a contact? Use it as is: importing would rename it and the
+        #    cleanup below would delete it. Only our own leftovers get removed.
+        contacts = await self._client.invoke(functions.contacts.GetContacts(hash=0))
+        for u in getattr(contacts, "users", []):
+            if isinstance(u, types.User) and u.phone == digits:
+                iu = types.InputUser(user_id=u.id, access_hash=u.access_hash)
+                if _is_import_leftover(u):
+                    log.info("removing leftover %r contact for %s", _IMPORT_NAME, phone)
+                    await self._drop_contact(iu)
+                log.info("resolved %s → user %s (existing contact)", phone, u.id)
+                return iu
+
+        # 2. contacts.resolvePhone: a read-only lookup, touches no contacts.
+        try:
+            resolved = await self._client.invoke(
+                functions.contacts.ResolvePhone(phone=digits))
+            for u in resolved.users:
+                if isinstance(u, types.User) and u.access_hash is not None:
+                    log.info("resolved %s → user %s (resolvePhone)", phone, u.id)
+                    return types.InputUser(user_id=u.id, access_hash=u.access_hash)
+        except Exception as e:  # noqa: BLE001
+            log.debug("resolvePhone %s failed (%s); trying contact import", phone, e)
+
+        # 3. Import the number to discover the user, then delete the temporary
+        #    contact: while it sits in our list, Telegram substitutes the import
+        #    name into User objects, poisoning X-TG-FirstName/LastName.
         imported = await self._client.invoke(
             functions.contacts.ImportContacts(
                 contacts=[types.InputPhoneContact(
                     client_id=random.getrandbits(63),
-                    phone=phone, first_name="tg2sip", last_name="",
+                    phone=phone, first_name=_IMPORT_NAME, last_name="",
                 )]
             )
         )
         for u in imported.users:
             iu = types.InputUser(user_id=u.id, access_hash=u.access_hash)
-            # Delete the just-imported contact: while it sits in our contact
-            # list, Telegram substitutes the import name ("tg2sip") into User
-            # objects, poisoning X-TG-FirstName/LastName on inbound calls.
-            try:
-                await self._client.invoke(functions.contacts.DeleteContacts(id=[iu]))
-            except Exception as e:  # noqa: BLE001
-                log.debug("deleteContacts failed: %s", e)
+            await self._drop_contact(iu)
+            log.info("resolved %s → user %s (temporary contact import)", phone, u.id)
             return iu
         raise RuntimeError(f"phone {phone} is not a Telegram user")
 
@@ -347,6 +388,18 @@ class TelegramSignaling:
         if isinstance(pc, types.PhoneCallRequested):
             users = _users.values() if hasattr(_users, "values") else (_users or [])
             caller = next((u for u in users if getattr(u, "id", None) == pc.admin_id), None)
+            if (caller is not None and _is_import_leftover(caller)
+                    and getattr(caller, "access_hash", None) is not None):
+                # Our own leftover import masks the caller's real name: remove it
+                # and fetch the user again so this call already carries it.
+                log.info("removing leftover %r contact for user %s", _IMPORT_NAME, caller.id)
+                iu = types.InputUser(user_id=caller.id, access_hash=caller.access_hash)
+                await self._drop_contact(iu)
+                try:
+                    fresh = await self._client.invoke(functions.users.GetUsers(id=[iu]))
+                    caller = next((u for u in fresh if isinstance(u, types.User)), caller)
+                except Exception as e:  # noqa: BLE001
+                    log.debug("getUsers after contact cleanup failed: %s", e)
             incoming = IncomingTgCall(
                 call_id=pc.id, access_hash=pc.access_hash, caller_id=pc.admin_id,
                 g_a_hash=pc.g_a_hash, video=bool(getattr(pc, "video", False)),

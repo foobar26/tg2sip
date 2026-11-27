@@ -280,9 +280,14 @@ class SipAgent:
         call.set_callbacks(on_state=on_state, on_media=on_media)
         prm = pj.CallOpParam(True)
         for name, value in (headers or {}).items():
+            # Values can come from the Telegram caller (their name): keep each
+            # on one line so it can't break out of its header, and skip empties.
+            value = " ".join(str(value).split())
+            if not value:
+                continue
             hdr = pj.SipHeader()
             hdr.hName = name
-            hdr.hValue = str(value)
+            hdr.hValue = value
             prm.txOption.headers.append(hdr)
         call.makeCall(dest_uri, prm)
         log.info("outbound sip call → %s", dest_uri)

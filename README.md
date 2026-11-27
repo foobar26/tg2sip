@@ -225,6 +225,10 @@ qualify=yes
 ```ini
 [from-trunk]
 exten => _X.,1,NoOp(Inbound call from ${CALLERID(num)} → Telegram)
+ same => n,Set(TG_PHONE=${PJSIP_HEADER(read,X-TG-Phone)})
+ same => n,Set(CALLERID(name)=${PJSIP_HEADER(read,X-TG-FirstName)} ${PJSIP_HEADER(read,X-TG-LastName)})
+ same => n,ExecIf($["${TG_PHONE}" != ""]?Set(CALLERID(num)=+${TG_PHONE}):Set(CALLERID(num)=TG${PJSIP_HEADER(read,X-TG-ID)}))
+ same => n,Verbose(X-TG-ID: ${PJSIP_HEADER(read,X-TG-ID)} / X-TG-Username: ${PJSIP_HEADER(read,X-TG-Username)} / X-TG-Phone: ${TG_PHONE})
  same => n,Dial(PJSIP/tg2sip,30)
  same => n,Hangup()
 ```

@@ -138,6 +138,15 @@ telegram:
 | `100` (bare) | `sip:100@SIP_DOMAIN` (your PBX routes the extension) |
 | `sip:door@10.0.0.5` | that URI verbatim |
 
+The outgoing INVITE carries the Telegram caller's identity in custom headers (empty ones are left out), e.g. for caller ID or CDRs — see the `[tg2sip-in]` dialplan example under the Asterisk setup:
+
+| Header | Value |
+|---|---|
+| `X-TG-ID` | numeric Telegram user id (always set) |
+| `X-TG-FirstName` / `X-TG-LastName` | the caller's Telegram name |
+| `X-TG-Username` | username without `@` |
+| `X-TG-Phone` | phone number without `+`, only if the caller shares it with the gateway account |
+
 Notes:
 - **Phone-number keys** work, but indirectly: Telegram never reveals a *caller's* number to us (we only get their user id + username). So a `+<phone>` key is resolved to *its* user id (via a contact import, like the SIP→TG direction) and the incoming call's id is matched against that — the number must belong to a Telegram user. Numeric user-id keys are the most direct (no lookup). Tip: check the log line `incoming TG call from user <id>` to learn a caller's id.
 - The gateway handles **one call at a time** in either direction; a second call (either way) gets a busy decline.
@@ -234,6 +243,19 @@ Or only forward a specific DID:
 ```ini
 exten => 12345,1,Dial(PJSIP/tg2sip,30)
 ```
+
+Calls *from* Telegram (see [Calling from Telegram to SIP](#calling-from-telegram-to-sip-inbound)) arrive in the endpoint's `context=tg2sip-in`. tg2sip puts the Telegram caller's identity into `X-TG-*` headers, which the dialplan can turn into caller ID:
+
+```ini
+[tg2sip-in]
+exten => _X.,1,Set(TG_PHONE=${PJSIP_HEADER(read,X-TG-Phone)})
+ same => n,Set(CALLERID(name)=${PJSIP_HEADER(read,X-TG-FirstName)} ${PJSIP_HEADER(read,X-TG-LastName)})
+ same => n,ExecIf($["${TG_PHONE}" != ""]?Set(CALLERID(num)=+${TG_PHONE}):Set(CALLERID(num)=TG${PJSIP_HEADER(read,X-TG-ID)}))
+ same => n,Dial(PJSIP/${EXTEN},30)
+ same => n,Hangup()
+```
+
+On FreePBX 17 put this in `/etc/asterisk/extensions_custom.conf` and end with `Goto(from-internal,${EXTEN},1)` instead of `Dial`. `PJSIP_HEADER` needs `chan_pjsip`; with legacy `chan_sip` use `SIP_HEADER(X-TG-Phone)` etc.
 
 **5. Reload Asterisk:**
 

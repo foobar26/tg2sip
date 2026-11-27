@@ -291,8 +291,16 @@ class Gateway:
             self._tg_media.set_signaling_sender(self._tg_sig.send_signaling_out)
             await self._tg_media.create_call(incoming.caller_id)
 
-            # Ring the SIP side and wait for it to answer.
-            await self._dial_sip(dest_uri)
+            # Ring the SIP side and wait for it to answer. The X-TG-* headers
+            # carry the Telegram caller's identity for the PBX dialplan (CDR).
+            headers = {
+                "X-TG-ID": str(incoming.caller_id),
+                "X-TG-FirstName": incoming.first_name,
+                "X-TG-LastName": incoming.last_name,
+                "X-TG-Username": incoming.username,
+                "X-TG-Phone": incoming.phone,
+            }
+            await self._dial_sip(dest_uri, headers=headers)
 
             # Phone answered → accept the TG call and finish the key exchange
             # as the callee (init_exchange with the caller's g_a_hash → g_b).
@@ -326,7 +334,7 @@ class Gateway:
             self._state = State.BRIDGED
         log.info("call bridged (tg→sip)")
 
-    async def _dial_sip(self, dest_uri: str) -> None:
+    async def _dial_sip(self, dest_uri: str, headers: Optional[dict] = None) -> None:
         """Place the outbound SIP call and block until answered (CONFIRMED).
         Raises CallDiscardedError if it fails / times out."""
         answered: asyncio.Future = self._loop.create_future()
@@ -337,7 +345,8 @@ class Gateway:
                     self._on_outbound_sip_state(state_text, answered), self._loop)
 
         self._sip_call = self._sip.make_call(
-            dest_uri, on_state=on_state, on_media=self._on_sip_media_threadsafe)
+            dest_uri, on_state=on_state, on_media=self._on_sip_media_threadsafe,
+            headers=headers)
         try:
             await asyncio.wait_for(answered, timeout=SIP_ANSWER_TIMEOUT_S)
         except asyncio.TimeoutError:

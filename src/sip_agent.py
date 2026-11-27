@@ -269,6 +269,7 @@ class SipAgent:
         dest_uri: str,
         on_state: Callable[[str], None],
         on_media: Callable[[pj.AudioMedia], None],
+        headers: Optional[dict] = None,
     ) -> SipCall:
         """Place an outbound SIP call (TG→SIP direction) to dest_uri and return
         the SipCall. on_state/on_media fire as the call progresses (CONFIRMED
@@ -278,6 +279,11 @@ class SipAgent:
         call = SipCall(self._acc)
         call.set_callbacks(on_state=on_state, on_media=on_media)
         prm = pj.CallOpParam(True)
+        for name, value in (headers or {}).items():
+            hdr = pj.SipHeader()
+            hdr.hName = name
+            hdr.hValue = str(value)
+            prm.txOption.headers.append(hdr)
         call.makeCall(dest_uri, prm)
         log.info("outbound sip call → %s", dest_uri)
         return call

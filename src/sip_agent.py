@@ -189,7 +189,12 @@ class SipCall(pj.Call):
     def end(self) -> None:
         if self.isActive():
             prm = pj.CallOpParam(True)
-            prm.statusCode = 200
+            # Only matters for an incoming call that was never answered (e.g.
+            # the Telegram side declined or hung up first): a 200 here would
+            # answer the INVITE, so the PBX sees it as picked up and stops
+            # ringing other phones in the same Dial. Reject with 480 instead.
+            # Answered calls get a BYE and outgoing ones a CANCEL either way.
+            prm.statusCode = 480
             self.hangup(prm)
 
 
